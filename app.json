@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "Calculator with Hidden Message",
-    "slug": "calculator-hidden-message",
+    "name": "Cruzer",
+    "slug": "calculator-cruzer",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -15,7 +15,7 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "app.rork.calculator-hidden-message",
+      "bundleIdentifier": "app.work.cruzer",
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "Allow $(PRODUCT_NAME) to access your photos",
         "NSCameraUsageDescription": "Allow $(PRODUCT_NAME) to access your camera",
@@ -36,7 +36,7 @@
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "app.rork.calculator_hidden_message",
+      "package": "app.rork.cruzer",
       "permissions": [
         "CAMERA",
         "READ_EXTERNAL_STORAGE",

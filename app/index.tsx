@@ -2825,51 +2825,6 @@ export default function CalculatorApp() {
     </Animated.View>
   );
 
-  const renderActiveVideoCall = () => (
-    <Animated.View style={[styles.activeCallContainer, { opacity: fadeAnim }]}>
-      <SafeAreaView style={styles.activeCallSafeArea}>
-        <View style={styles.activeCallContent}>
-          <Text style={styles.activeCallNumber}>{activeCallNumber}</Text>
-          <Text style={styles.activeCallStatus}>Video Call</Text>
-          <Text style={styles.activeCallDuration}>{formatCallDuration(activeCallDuration)}</Text>
-
-          <View style={styles.activeCallControls}>
-            <TouchableOpacity
-              style={[styles.callControlButton, isCallMuted && styles.callControlButtonActive]}
-              onPress={toggleMute}
-            >
-              <Text style={styles.callControlButtonText}>🔇</Text>
-              <Text style={styles.callControlLabel}>{isCallMuted ? "Unmute" : "Mute"}</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.callControlButton}
-              onPress={toggleCameraFacing}
-            >
-              <Text style={styles.callControlButtonText}>🔄</Text>
-              <Text style={styles.callControlLabel}>Flip</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.callControlButton, isCallOnSpeaker && styles.callControlButtonActive]}
-              onPress={toggleSpeaker}
-            >
-              <Text style={styles.callControlButtonText}>🔊</Text>
-              <Text style={styles.callControlLabel}>Speaker</Text>
-            </TouchableOpacity>
-          </View>
-
-          <TouchableOpacity
-            style={styles.endCallButton}
-            onPress={handleEndCall}
-          >
-            <Phone size={32} color="#FFFFFF" />
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
-    </Animated.View>
-  );
-
   const renderSMSChat = () => {
     const conversation = smsConversations.find(c => c.id === selectedSMSConversation);
     if (!conversation) return null;
@@ -3172,7 +3127,6 @@ export default function CalculatorApp() {
       {mode === "camera" && renderCameraScreen()}
       {mode === "phoneDialer" && renderPhoneDialer()}
       {mode === "activeCall" && renderActiveCall()}
-      {mode === "activeVideoCall" && renderActiveVideoCall()}
       {mode === "smsChat" && renderSMSChat()}
 
       <Modal

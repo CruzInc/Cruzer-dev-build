@@ -17,6 +17,8 @@ import {
   Alert,
   Linking,
   ActivityIndicator,
+  UIManager,
+  LayoutAnimation,
 } from "react-native";
 import { Send, Phone, Video, Settings, Image as ImageIcon, FileText, User, X, Info, Pin, BellOff, Lock, Search, LogOut, MapPin, Camera, Crown } from "lucide-react-native";
 import * as ImagePicker from 'expo-image-picker';
@@ -29,7 +31,11 @@ import MapView, { Marker } from 'react-native-maps';
 import * as WebBrowser from 'expo-web-browser';
 import * as AuthSession from 'expo-auth-session';
 import { signalWireService } from '../services/signalwire';
+import { getAIResponse, ChatMessage } from '../services/ai';
 import Purchases, { LOG_LEVEL, PurchasesOffering } from 'react-native-purchases';
+
+// Ensure WebBrowser redirect is properly handled
+WebBrowser.maybeCompleteAuthSession();
 
 type CalculatorMode = "calculator" | "messages" | "chat" | "videoCall" | "info" | "profile" | "auth" | "developer" | "location" | "camera" | "phoneDialer" | "activeCall" | "activeVideoCall" | "smsChat";
 
@@ -232,9 +238,50 @@ export default function CalculatorApp() {
   
   const [isAiTyping, setIsAiTyping] = useState<boolean>(false);
   
+  // Enable LayoutAnimation for Android
+  useEffect(() => {
+    if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+      UIManager.setLayoutAnimationEnabledExperimental(true);
+    }
+  }, []);
+  
   const { messages: aiAgentMessages, sendMessage: sendAiMessage } = useRorkAgent({
     tools: {},
   });
+
+  // AI conversation history for context
+  const aiConversationHistory = useRef<ChatMessage[]>([]);
+
+  // Enhanced AI function using the AI service with fallbacks
+  const sendToFreeAI = async (userMessage: string): Promise<string> => {
+    try {
+      // Build conversation history for context
+      const history: ChatMessage[] = aiConversationHistory.current.slice(-6);
+      
+      // Use the AI service which has multiple providers and fallbacks
+      const response = await getAIResponse(userMessage, history);
+      
+      if (response.success && response.message) {
+        // Add to conversation history
+        aiConversationHistory.current.push(
+          { role: 'user', content: userMessage },
+          { role: 'assistant', content: response.message }
+        );
+        
+        // Keep history manageable
+        if (aiConversationHistory.current.length > 20) {
+          aiConversationHistory.current = aiConversationHistory.current.slice(-10);
+        }
+        
+        return response.message;
+      }
+      
+      return '';
+    } catch (error) {
+      console.error('AI service error:', error);
+      return '';
+    }
+  };
 
   useEffect(() => {
     const fetchIP = async () => {
@@ -681,8 +728,33 @@ export default function CalculatorApp() {
       
       try {
         console.log("Sending message to AI:", messageToSend);
-        const prompt = `You are Cruz's Helper, a friendly and helpful AI assistant. Answer the user's question directly and concisely. If the user asks about weather, news, facts, or anything that would need current information, provide the best answer you can based on your knowledge. Always give a single, clear, well-formatted response. Never split your answer into multiple messages. Be conversational and helpful.\n\nUser question: ${messageToSend}`;
-        await sendAiMessage(prompt);
+        
+        // Try free AI first (Groq), fallback to rork agent
+        const freeAiResponse = await sendToFreeAI(messageToSend);
+        
+        if (freeAiResponse) {
+          // Got response from free AI
+          setIsAiTyping(false);
+          const aiResponse: Message = {
+            id: Date.now().toString() + '-ai-' + Math.random().toString(36).substr(2, 9),
+            text: freeAiResponse,
+            sender: 'aspen',
+            timestamp: new Date(),
+          };
+          
+          setAiMessages(prev => [...prev, aiResponse]);
+          setContacts(c => c.map(contact => 
+            contact.id === 'cruz' ? { ...contact, lastMessage: freeAiResponse.substring(0, 50) + (freeAiResponse.length > 50 ? '...' : ''), timestamp: new Date() } : contact
+          ));
+          
+          setTimeout(() => {
+            scrollViewRef.current?.scrollToEnd({ animated: true });
+          }, 100);
+        } else {
+          // Fallback to rork agent
+          const prompt = `You are Cruz's Helper, a friendly and helpful AI assistant. Answer the user's question directly and concisely. If the user asks about weather, news, facts, or anything that would need current information, provide the best answer you can based on your knowledge. Always give a single, clear, well-formatted response. Never split your answer into multiple messages. Be conversational and helpful.\n\nUser question: ${messageToSend}`;
+          await sendAiMessage(prompt);
+        }
         console.log("AI message sent successfully");
       } catch (error) {
         console.error("AI Error:", error);
@@ -1184,30 +1256,51 @@ export default function CalculatorApp() {
 
   const handleGoogleSignIn = async () => {
     try {
-      const redirectUri = AuthSession.makeRedirectUri();
+      // Use environment variable for client ID, fallback to hardcoded for development
+      const clientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || '1046911026897-iqjnqvjcpfv0r4vvagm5m37g7b5g4i8e.apps.googleusercontent.com';
+      
+      const redirectUri = AuthSession.makeRedirectUri({
+        // Use the Expo AuthSession proxy so Google accepts the redirect URI (https)
+        useProxy: true,
+        scheme: 'rork-app',
+        path: 'auth/callback',
+      });
 
       const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${new URLSearchParams({
-        client_id: '1046911026897-iqjnqvjcpfv0r4vvagm5m37g7b5g4i8e.apps.googleusercontent.com',
+        client_id: clientId,
         redirect_uri: redirectUri,
         response_type: 'token',
         scope: 'openid email profile',
+        prompt: 'select_account',
       }).toString()}`;
 
       console.log('Opening Google Sign-In:', authUrl);
       console.log('Redirect URI:', redirectUri);
 
-      const result = await WebBrowser.openAuthSessionAsync(authUrl, redirectUri);
+      const result = await WebBrowser.openAuthSessionAsync(authUrl, redirectUri, {
+        showInRecents: true,
+        preferEphemeralSession: false,
+      });
 
       console.log('Auth result:', result);
 
       if (result.type === 'success' && result.url) {
-        const params = new URLSearchParams(result.url.split('#')[1] || '');
+        // Parse the URL fragment for the access token
+        const urlParts = result.url.split('#');
+        const fragment = urlParts[1] || '';
+        const params = new URLSearchParams(fragment);
         const accessToken = params.get('access_token');
 
         if (accessToken) {
+          // Fetch user info from Google
           const userInfoResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
             headers: { Authorization: `Bearer ${accessToken}` },
           });
+          
+          if (!userInfoResponse.ok) {
+            throw new Error('Failed to fetch user info');
+          }
+          
           const userInfo = await userInfoResponse.json();
 
           console.log('Google user info:', userInfo);
@@ -1216,21 +1309,32 @@ export default function CalculatorApp() {
           const googleName = userInfo.name || 'Google User';
           const googlePicture = userInfo.picture;
 
+          // Check for existing account
           const existingAccount = userAccounts.find(u => u.email === googleEmail);
 
           if (existingAccount) {
-            existingAccount.lastLogin = new Date();
-            if (googlePicture) existingAccount.profilePicture = googlePicture;
-            if (!existingAccount.phoneNumber) {
-              existingAccount.phoneNumber = generatePhoneNumber();
-            }
-            setCurrentUser(existingAccount);
+            // Update existing account
+            const updatedAccount = {
+              ...existingAccount,
+              lastLogin: new Date(),
+              profilePicture: googlePicture || existingAccount.profilePicture,
+              phoneNumber: existingAccount.phoneNumber || generatePhoneNumber(),
+            };
+            
+            setUserAccounts(userAccounts.map(u => 
+              u.email === googleEmail ? updatedAccount : u
+            ));
+            setCurrentUser(updatedAccount);
+            
+            // Smooth transition with layout animation
+            LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
             switchMode('profile');
           } else {
+            // Create new account
             const newAccount: UserAccount = {
               id: Date.now().toString(),
               email: googleEmail,
-              password: 'google-auth',
+              password: 'google-oauth-' + Date.now(),
               publicName: googleName,
               privateName: googleName,
               lockEnabled: false,
@@ -1243,17 +1347,27 @@ export default function CalculatorApp() {
 
             setUserAccounts([...userAccounts, newAccount]);
             setCurrentUser(newAccount);
+            
+            // Smooth transition with layout animation
+            LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
             switchMode('profile');
           }
+          
+          Alert.alert('Welcome!', `Signed in as ${googleName}`);
         } else {
-          Alert.alert('Error', 'Failed to get access token from Google');
+          Alert.alert('Sign In Error', 'Failed to get access token from Google. Please try again.');
         }
       } else if (result.type === 'cancel') {
         console.log('User cancelled Google Sign-In');
+      } else if (result.type === 'dismiss') {
+        console.log('Auth session was dismissed');
       }
     } catch (error) {
-      console.log('Google Sign-In error:', error);
-      Alert.alert('Error', 'Failed to sign in with Google. Please try again.');
+      console.error('Google Sign-In error:', error);
+      Alert.alert(
+        'Sign In Failed', 
+        'Unable to sign in with Google. Please check your internet connection and try again.'
+      );
     }
   };
 
@@ -1713,26 +1827,16 @@ export default function CalculatorApp() {
                       if (message.text === '') return null;
               const effectAnim = effectAnimations[message.id];
               const hasEffect = message.effect === 'slam' || message.effect === 'float';
-              const animStyle = effectAnim && hasEffect
-                ? {
+
+              return (
+                <View key={message.id}>
+                  <Animated.View style={hasEffect && effectAnim ? {
                     transform: [
                       { scale: effectAnim.scale },
                       { translateY: effectAnim.translateY },
                     ],
                     opacity: effectAnim.opacity,
-                    position: 'absolute' as const,
-                    left: '50%',
-                    top: '50%',
-                    marginLeft: -150,
-                    marginTop: -50,
-                    zIndex: 1000,
-                    width: 300,
-                  }
-                : {};
-
-              return (
-                <View key={message.id}>
-                  <Animated.View style={animStyle}>
+                  } : undefined}>
                     <TouchableOpacity
                       activeOpacity={0.8}
                       onLongPress={() => handleLongPressMessage(message.id)}
@@ -3019,6 +3123,11 @@ export default function CalculatorApp() {
                     </View>
                   </View>
                   <View style={styles.accountCardBadges}>
+                    {account.isGoogleAccount && (
+                      <View style={styles.googleBadge}>
+                        <Text style={styles.googleBadgeText}>Google</Text>
+                      </View>
+                    )}
                     {account.whitelisted && (
                       <View style={styles.vipBadge}>
                         <Crown size={12} color="#FFD700" />
@@ -3081,6 +3190,13 @@ export default function CalculatorApp() {
                       <Text style={styles.accountCardLabel}>VIP Status:</Text>
                       <Text style={[styles.accountCardValue, account.whitelisted && styles.vipStatusText]}>
                         {account.whitelisted ? "Whitelisted" : "Standard"}
+                      </Text>
+                    </View>
+
+                    <View style={styles.accountCardRow}>
+                      <Text style={styles.accountCardLabel}>Account Type:</Text>
+                      <Text style={styles.accountCardValue}>
+                        {account.isGoogleAccount ? "Google Account" : "Email/Password"}
                       </Text>
                     </View>
 
@@ -5081,6 +5197,17 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "700" as const,
     color: "#FFD700",
+  },
+  googleBadge: {
+    backgroundColor: "rgba(66, 133, 244, 0.2)",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  googleBadgeText: {
+    fontSize: 11,
+    fontWeight: "700" as const,
+    color: "#4285F4",
   },
   expandIndicator: {
     fontSize: 12,

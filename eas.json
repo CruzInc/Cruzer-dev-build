@@ -7,26 +7,41 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
-      "node": "20.18.0"
+      "node": "20.18.0",
+      "npm": {
+        "install": ["--legacy-peer-deps"]
+      }
     },
     "preview": {
       "distribution": "internal",
-      "node": "20.18.0"
+      "node": "20.18.0",
+      "npm": {
+        "install": ["--legacy-peer-deps"]
+      }
     },
     "preview-apk": {
       "distribution": "internal",
       "node": "20.18.0",
+      "npm": {
+        "install": ["--legacy-peer-deps"]
+      },
       "android": {
         "buildType": "apk"
       }
     },
     "production": {
       "autoIncrement": true,
-      "node": "20.18.0"
+      "node": "20.18.0",
+      "npm": {
+        "install": ["--legacy-peer-deps"]
+      }
     },
     "production-apk": {
       "autoIncrement": true,
       "node": "20.18.0",
+      "npm": {
+        "install": ["--legacy-peer-deps"]
+      },
       "android": {
         "buildType": "apk"
       }

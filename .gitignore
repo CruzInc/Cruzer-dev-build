@@ -38,7 +38,4 @@ yarn-error.*
 *.tsbuildinfo
 .vercel
 
-.rork
-
 .env
-rork-eslint.config.js

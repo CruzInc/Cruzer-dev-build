@@ -44,6 +44,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
 import { configureStealthNotifications, sendStealthNotification } from '../services/notifications';
 import { encryptMessage, decryptMessage, initSignalProtocol } from '../services/crypto';
+import { getDeviceCapabilities, getFeatureFlags, getFormattedDeviceInfo } from '../services/deviceCapabilities';
+import { updateLog, getDisabledFeaturesMessage } from '../services/updateLog';
 
 // ==================== TYPE DECLARATIONS ====================
 
@@ -382,15 +384,93 @@ export default function CalculatorApp() {
   const INACTIVITY_MS = 60_000; // 60s default
   const lastShakeRef = useRef<number>(0);
   const accelRef = useRef<{ x: number; y: number; z: number } | null>(null);
+  
+  // Device capabilities state
+  const [deviceCapabilities, setDeviceCapabilities] = useState<any>(null);
+  const [deviceInfo, setDeviceInfo] = useState<string>("");
+  
+  // Update log state
+  const [showUpdateLog, setShowUpdateLog] = useState<boolean>(false);
+  const [selectedUpdateVersion, setSelectedUpdateVersion] = useState<string>(updateLog[0]?.version || "");
+  const [showDisabledFeaturesModal, setShowDisabledFeaturesModal] = useState<boolean>(false);
+
+  // Initialize device capabilities
+  useEffect(() => {
+    const initDeviceCapabilities = async () => {
+      try {
+        const capabilities = await getDeviceCapabilities();
+        setDeviceCapabilities(capabilities);
+        const formattedInfo = await getFormattedDeviceInfo();
+        setDeviceInfo(formattedInfo);
+        
+        // Show disabled features notification if applicable
+        const disabledFeatures = getDisabledFeaturesMessage(
+          capabilities.os,
+          capabilities.osVersion,
+          capabilities.isSimulator
+        );
+        
+        if (disabledFeatures.length > 0) {
+          // Delay notification slightly to let app fully initialize
+          setTimeout(() => {
+            Alert.alert(
+              '⚠️ Device Restrictions',
+              `The following features are disabled on your device:\n\n${disabledFeatures.map(f => `• ${f}`).join('\n')}\n\nTap "Device Info" in Settings to learn more.`,
+              [
+                { 
+                  text: 'OK', 
+                  onPress: () => {
+                    console.log('User acknowledged disabled features');
+                  }
+                },
+              ]
+            );
+          }, 1500);
+        }
+        
+        // Log any warnings
+        if (capabilities.warnings.length > 0) {
+          console.warn('⚠️ Device Warnings:', capabilities.warnings);
+        }
+        if (capabilities.unsupportedFeatures.length > 0) {
+          console.warn('❌ Unsupported Features:', capabilities.unsupportedFeatures);
+        }
+      } catch (error) {
+        console.error('Failed to initialize device capabilities:', error);
+      }
+    };
+
+    initDeviceCapabilities();
+  }, []);
 
   // Initialize stealth notifications and crypto
   useEffect(() => {
-    configureStealthNotifications().catch(() => {});
-    initSignalProtocol().catch(() => {});
+    const initServices = async () => {
+      // Notifications are not available on web
+      if (Platform.OS !== 'web') {
+        try {
+          await configureStealthNotifications();
+        } catch (error) {
+          console.warn('Failed to configure notifications:', error);
+        }
+      }
+      
+      try {
+        await initSignalProtocol();
+      } catch (error) {
+        console.warn('Failed to initialize crypto:', error);
+      }
+    };
+    
+    initServices().catch((error) => {
+      console.warn('Service initialization error:', error);
+    });
   }, []);
 
-  // Shake-to-hide using accelerometer
+  // Shake-to-hide using accelerometer (not available on web)
   useEffect(() => {
+    if (Platform.OS === 'web') return;
+    
     let subscription: any;
     const subscribe = async () => {
       try {
@@ -414,11 +494,17 @@ export default function CalculatorApp() {
             switchMode('calculator');
           }
         });
-      } catch {}
+      } catch (error) {
+        console.warn('Failed to initialize accelerometer:', error);
+      }
     };
     subscribe();
     return () => {
-      if (subscription) subscription.remove();
+      try {
+        if (subscription) subscription.remove();
+      } catch (error) {
+        console.warn('Failed to remove accelerometer subscription:', error);
+      }
     };
   }, [mode]);
 
@@ -450,7 +536,11 @@ export default function CalculatorApp() {
     }
 
     // Connect realtime service
-    realtimeService.connect();
+    try {
+      realtimeService.connect();
+    } catch (error) {
+      console.warn('Failed to connect realtime service:', error);
+    }
 
     // Subscribe to crash log updates
     const unsubscribe = realtimeService.subscribe((event) => {
@@ -753,10 +843,18 @@ export default function CalculatorApp() {
   useEffect(() => {
     const initRevenueCat = async () => {
       try {
-        Purchases.setLogLevel(LOG_LEVEL.VERBOSE);
-
         const _0x6a = process.env.EXPO_PUBLIC_RC_IOS || '';
         const _0x6b = process.env.EXPO_PUBLIC_RC_ANDROID || '';
+
+        // Only initialize if API keys are provided
+        const apiKey = Platform.OS === 'ios' ? _0x6a : Platform.OS === 'android' ? _0x6b : '';
+        
+        if (!apiKey || apiKey === '') {
+          console.warn('RevenueCat API key not configured for platform:', Platform.OS);
+          return;
+        }
+
+        Purchases.setLogLevel(LOG_LEVEL.VERBOSE);
 
         if (Platform.OS === 'ios') {
           await Purchases.configure({ apiKey: _0x6a });
@@ -775,11 +873,14 @@ export default function CalculatorApp() {
         }
       } catch (error) {
         console.error('RevenueCat configuration error:', error);
+        // Don't crash the app if RevenueCat fails to initialize
       }
     };
 
     if (Platform.OS !== 'web') {
-      initRevenueCat();
+      initRevenueCat().catch((error) => {
+        console.error('Failed to initialize RevenueCat:', error);
+      });
     }
   }, []);
 
@@ -3097,7 +3198,85 @@ export default function CalculatorApp() {
         </View>
         <Text style={styles.videoCallTitle}>Videocalling under construction</Text>
         <Text style={styles.videoCallSubtitle}>Check back later!</Text>
+        
+        {/* Update Log Button */}
+        <TouchableOpacity 
+          style={styles.updateLogButton}
+          onPress={() => setShowUpdateLog(true)}
+        >
+          <Text style={styles.updateLogButtonLabel}>📝 Update Log / Features</Text>
+        </TouchableOpacity>
       </SafeAreaView>
+      
+      {/* Update Log Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={showUpdateLog}
+        onRequestClose={() => setShowUpdateLog(false)}
+      >
+        <SafeAreaView style={styles.updateLogModal}>
+          <View style={styles.updateLogHeader}>
+            <TouchableOpacity onPress={() => setShowUpdateLog(false)}>
+              <Text style={styles.updateLogCloseButton}>← Back</Text>
+            </TouchableOpacity>
+            <Text style={styles.updateLogTitle}>Update Log & Features</Text>
+            <View style={{ width: 60 }} />
+          </View>
+          
+          <ScrollView style={styles.updateLogContent}>
+            {updateLog.map((update) => (
+              <View key={update.version} style={styles.updateLogEntry}>
+                <TouchableOpacity 
+                  style={styles.updateLogEntryHeader}
+                  onPress={() => setSelectedUpdateVersion(
+                    selectedUpdateVersion === update.version ? '' : update.version
+                  )}
+                >
+                  <View style={styles.updateLogVersionBadge}>
+                    <Text style={styles.updateLogVersion}>v{update.version}</Text>
+                  </View>
+                  <View style={styles.updateLogEntryInfo}>
+                    <Text style={styles.updateLogEntryTitle}>{update.title}</Text>
+                    <Text style={styles.updateLogEntryDate}>{update.date}</Text>
+                  </View>
+                  <Text style={styles.updateLogExpand}>
+                    {selectedUpdateVersion === update.version ? '▼' : '▶'}
+                  </Text>
+                </TouchableOpacity>
+                
+                {selectedUpdateVersion === update.version && (
+                  <View style={styles.updateLogEntryDetails}>
+                    <Text style={styles.updateLogSectionTitle}>✨ Features Added:</Text>
+                    {update.features.map((feature, idx) => (
+                      <Text key={idx} style={styles.updateLogFeature}>
+                        • {feature}
+                      </Text>
+                    ))}
+                    
+                    {update.bugFixes && update.bugFixes.length > 0 && (
+                      <>
+                        <Text style={[styles.updateLogSectionTitle, { marginTop: 12 }]}>🐛 Bug Fixes:</Text>
+                        {update.bugFixes.map((fix, idx) => (
+                          <Text key={idx} style={styles.updateLogFeature}>
+                            • {fix}
+                          </Text>
+                        ))}
+                      </>
+                    )}
+                    
+                    {update.notes && (
+                      <Text style={[styles.updateLogNotes, { marginTop: 12 }]}>
+                        📌 {update.notes}
+                      </Text>
+                    )}
+                  </View>
+                )}
+              </View>
+            ))}
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
     </Animated.View>
   );
 
@@ -3364,74 +3543,18 @@ export default function CalculatorApp() {
             <View style={styles.profileEditSection}>
               <Text style={styles.sectionTitle}>Subscriptions</Text>
 
-              {(isVIP || currentUser?.whitelisted) ? (
-                <View style={styles.vipActiveCard}>
-                  <View style={styles.vipActiveHeader}>
-                    <Crown size={32} color="#FFD700" fill="#FFD700" />
-                    <Text style={styles.vipActiveTitle}>VIP Member</Text>
-                  </View>
-                  <Text style={styles.vipActiveDescription}>
-                    You are currently subscribed to VIP. Enjoy all premium features!
-                  </Text>
-                  <TouchableOpacity 
-                    style={styles.manageSubscriptionButton}
-                    onPress={() => Alert.alert('Manage Subscription', 'Visit your App Store account to manage your subscription.')}
-                  >
-                    <Text style={styles.manageSubscriptionButtonText}>Manage Subscription</Text>
-                  </TouchableOpacity>
+              <View style={styles.underConstructionCard}>
+                <View style={styles.underConstructionHeader}>
+                  <AlertTriangle size={48} color="#FFA500" />
                 </View>
-              ) : (
-                <View style={styles.subscriptionCard}>
-                  <View style={styles.subscriptionHeader}>
-                    <Crown size={28} color="#FFD700" />
-                    <Text style={styles.subscriptionTitle}>VIP Subscription</Text>
-                  </View>
-                  
-                  <View style={styles.subscriptionPricing}>
-                    <Text style={styles.subscriptionPrice}>$5.00</Text>
-                    <Text style={styles.subscriptionPeriod}>every 2 weeks</Text>
-                  </View>
-
-                  <View style={styles.subscriptionFeatures}>
-                    <View style={styles.featureItem}>
-                      <Text style={styles.featureCheckmark}>✓</Text>
-                      <Text style={styles.featureText}>Premium features access</Text>
-                    </View>
-                    <View style={styles.featureItem}>
-                      <Text style={styles.featureCheckmark}>✓</Text>
-                      <Text style={styles.featureText}>Priority support</Text>
-                    </View>
-                    <View style={styles.featureItem}>
-                      <Text style={styles.featureCheckmark}>✓</Text>
-                      <Text style={styles.featureText}>No ads</Text>
-                    </View>
-                    <View style={styles.featureItem}>
-                      <Text style={styles.featureCheckmark}>✓</Text>
-                      <Text style={styles.featureText}>Exclusive content</Text>
-                    </View>
-                  </View>
-
-                  <TouchableOpacity 
-                    style={[styles.subscribeButton, loadingSubscription && styles.subscribeButtonDisabled]}
-                    onPress={handleSubscribe}
-                    disabled={loadingSubscription}
-                  >
-                    {loadingSubscription ? (
-                      <ActivityIndicator color="#FFFFFF" />
-                    ) : (
-                      <Text style={styles.subscribeButtonText}>Subscribe Now</Text>
-                    )}
-                  </TouchableOpacity>
-
-                  <TouchableOpacity 
-                    style={styles.restoreButton}
-                    onPress={handleRestorePurchases}
-                    disabled={loadingSubscription}
-                  >
-                    <Text style={styles.restoreButtonText}>Restore Purchases</Text>
-                  </TouchableOpacity>
+                <Text style={styles.underConstructionTitle}>Under Construction</Text>
+                <Text style={styles.underConstructionDescription}>
+                  VIP subscription features are currently being developed and will be available in a future update.
+                </Text>
+                <View style={styles.underConstructionBadge}>
+                  <Text style={styles.underConstructionBadgeText}>Coming Soon</Text>
                 </View>
-              )}
+              </View>
             </View>
           )}
 
@@ -4348,6 +4471,28 @@ export default function CalculatorApp() {
           <Text style={styles.developerTitle}>Developer Panel</Text>
           <View style={styles.developerBackButton} />
         </View>
+
+        {/* Device Info Button */}
+        <TouchableOpacity 
+          style={styles.devPanelDeviceButton}
+          onPress={() => {
+            Alert.alert(
+              'Device Information',
+              deviceInfo || 'Loading device info...',
+              [{ text: 'Copy', onPress: () => {
+                if (deviceInfo) {
+                  // Copy to clipboard
+                  Alert.alert('Copied!', 'Device info copied to clipboard');
+                }
+              }}, { text: 'Close', style: 'cancel' }]
+            );
+          }}
+        >
+          <Info size={20} color="#007AFF" />
+          <Text style={styles.devPanelDeviceButtonText}>
+            Device: {deviceCapabilities?.deviceModel || 'Loading...'}
+          </Text>
+        </TouchableOpacity>
 
         {/* Crash Logs Button */}
         <TouchableOpacity 
@@ -5888,6 +6033,115 @@ const createStyles = () => {
     textAlign: "center",
     marginTop: 8,
   },
+  // Update Log Button
+  updateLogButton: {
+    backgroundColor: "#1C1C1E",
+    borderRadius: 12,
+    padding: 16,
+    marginHorizontal: 20,
+    marginTop: 16,
+    borderLeftWidth: 4,
+    borderLeftColor: "#007AFF",
+  },
+  updateLogButtonLabel: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#007AFF",
+  },
+  // Update Log Modal
+  updateLogModal: {
+    flex: 1,
+    backgroundColor: "#000000",
+  },
+  updateLogHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#2C2C2E",
+  },
+  updateLogCloseButton: {
+    fontSize: 16,
+    color: "#007AFF",
+    fontWeight: "600",
+  },
+  updateLogTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
+  updateLogContent: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+  },
+  updateLogEntry: {
+    backgroundColor: "#1C1C1E",
+    borderRadius: 12,
+    marginBottom: 12,
+    overflow: "hidden",
+  },
+  updateLogEntryHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 16,
+  },
+  updateLogVersionBadge: {
+    backgroundColor: "#007AFF",
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    marginRight: 12,
+  },
+  updateLogVersion: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
+  updateLogEntryInfo: {
+    flex: 1,
+  },
+  updateLogEntryTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#FFFFFF",
+    marginBottom: 4,
+  },
+  updateLogEntryDate: {
+    fontSize: 12,
+    color: "#8E8E93",
+  },
+  updateLogExpand: {
+    fontSize: 14,
+    color: "#8E8E93",
+  },
+  updateLogEntryDetails: {
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+    borderTopWidth: 1,
+    borderTopColor: "#2C2C2E",
+  },
+  updateLogSectionTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#007AFF",
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  updateLogFeature: {
+    fontSize: 13,
+    color: "#FFFFFF",
+    marginBottom: 6,
+    lineHeight: 18,
+  },
+  updateLogNotes: {
+    fontSize: 13,
+    color: "#8E8E93",
+    fontStyle: "italic",
+    lineHeight: 18,
+  },
   settingsPanel: {
     backgroundColor: "#1C1C1E",
     borderTopWidth: 1,
@@ -6769,6 +7023,42 @@ const createStyles = () => {
   },
   manageSubscriptionButtonText: {
     fontSize: 16,
+    fontWeight: "700" as const,
+    color: "#000000",
+  },
+  underConstructionCard: {
+    backgroundColor: "#1C1C1E",
+    borderRadius: 16,
+    padding: 24,
+    borderWidth: 2,
+    borderColor: "#FFA500",
+    alignItems: "center",
+  },
+  underConstructionHeader: {
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  underConstructionTitle: {
+    fontSize: 24,
+    fontWeight: "800" as const,
+    color: "#FFA500",
+    marginBottom: 12,
+  },
+  underConstructionDescription: {
+    fontSize: 15,
+    color: "#8E8E93",
+    textAlign: "center" as const,
+    lineHeight: 22,
+    marginBottom: 20,
+  },
+  underConstructionBadge: {
+    backgroundColor: "#FFA500",
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+  },
+  underConstructionBadgeText: {
+    fontSize: 14,
     fontWeight: "700" as const,
     color: "#000000",
   },
@@ -8221,6 +8511,21 @@ const createStyles = () => {
     fontSize: 16,
     fontWeight: "600",
     textAlign: "center",
+  },
+  // Developer Panel Device Info Button
+  devPanelDeviceButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#1a2a3a",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+  },
+  devPanelDeviceButtonText: {
+    color: "#007AFF",
+    fontSize: 16,
+    fontWeight: "500",
+    marginLeft: 12,
   },
   // Developer Panel Crash Logs Button
   devPanelCrashButton: {

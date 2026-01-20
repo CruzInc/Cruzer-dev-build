@@ -5,7 +5,7 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "rork-app",
+    "scheme": "cruzer-app",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
@@ -36,7 +36,7 @@
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "app.rork.cruzer",
+      "package": "app.cruzer.mobile",
       "softwareKeyboardLayoutMode": "pan",
       "blockedPermissions": [],
       "permissions": [
@@ -64,7 +64,7 @@
       [
         "expo-router",
         {
-          "origin": "https://rork.com/"
+          "origin": "https://cruzer.app/"
         }
       ],
       "expo-font",
@@ -110,7 +110,7 @@
     },
     "extra": {
       "router": {
-        "origin": "https://rork.com/"
+        "origin": "https://cruzer.app/"
       },
       "eas": {
         "projectId": "13e52683-0d7f-45af-ae7f-fd3ae476ba55"

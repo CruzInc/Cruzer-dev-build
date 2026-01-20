@@ -27,7 +27,6 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as Contacts from 'expo-contacts';
 import * as Location from 'expo-location';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import { useRorkAgent } from "@rork-ai/toolkit-sdk";
 import MapView, { Marker } from 'react-native-maps';
 import * as WebBrowser from 'expo-web-browser';
 import * as AuthSession from 'expo-auth-session';
@@ -628,10 +627,6 @@ export default function CalculatorApp() {
       setShowLoginRequestModal(true);
     }
   }, [loginRequests, currentUser, showLoginRequestModal]);
-  
-  const { messages: aiAgentMessages, sendMessage: sendAiMessage } = useRorkAgent({
-    tools: {},
-  });
 
   // AI conversation history for context
   const aiConversationHistory = useRef<ChatMessage[]>([]);
@@ -822,71 +817,6 @@ export default function CalculatorApp() {
     glitchAnimation.start();
     return () => glitchAnimation.stop();
   }, [glitchAnim]);
-  
-  useEffect(() => {
-    if (aiAgentMessages.length > processedAiMessageIndexRef.current) {
-      const newMessages = aiAgentMessages.slice(processedAiMessageIndexRef.current);
-      console.log('Processing new AI messages:', newMessages.length);
-      
-      const lastMessage = newMessages[newMessages.length - 1];
-      
-      if (lastMessage && lastMessage.role === 'assistant' && lastMessage.parts) {
-        let fullText = '';
-        let hasToolCalls = false;
-        
-        for (const part of lastMessage.parts) {
-          if (part.type === 'text' && part.text) {
-            fullText += part.text;
-          }
-          if (part.type === 'tool') {
-            hasToolCalls = true;
-          }
-        }
-        
-        fullText = fullText.trim();
-        
-        if (fullText && !hasToolCalls) {
-          let cleanResponse = fullText
-            .replace(/^(Cruz's Helper:|Assistant:|AI:|Helper:)\s*/gi, '')
-            .replace(/\n{3,}/g, '\n\n')
-            .trim();
-          
-          if (cleanResponse.length > 0) {
-            setIsAiTyping(false);
-            
-            setAiMessages(prev => {
-              const existingIds = new Set(prev.map(m => m.text));
-              if (existingIds.has(cleanResponse)) {
-                console.log('Duplicate message content, skipping');
-                return prev;
-              }
-              
-              const aiResponse: Message = {
-                id: Date.now().toString() + '-ai-' + Math.random().toString(36).substr(2, 9),
-                text: cleanResponse,
-                sender: 'aspen',
-                timestamp: new Date(),
-              };
-              
-              console.log('Adding AI response:', cleanResponse.substring(0, 50));
-              
-              setContacts(c => c.map(contact => 
-                contact.id === 'cruz' ? { ...contact, lastMessage: cleanResponse.substring(0, 50) + (cleanResponse.length > 50 ? '...' : ''), timestamp: new Date() } : contact
-              ));
-              
-              setTimeout(() => {
-                scrollViewRef.current?.scrollToEnd({ animated: true });
-              }, 100);
-              
-              return [...prev, aiResponse];
-            });
-          }
-        }
-      }
-      
-      processedAiMessageIndexRef.current = aiAgentMessages.length;
-    }
-  }, [aiAgentMessages]);
 
   const pollForMessages = useCallback(async () => {
     try {
@@ -1113,31 +1043,40 @@ export default function CalculatorApp() {
       try {
         console.log("Sending message to AI:", messageToSend);
         
-        // Try free AI first (Groq), fallback to rork agent
-        const freeAiResponse = await sendToFreeAI(messageToSend);
+        // Send to AI service (uses multiple free providers with fallback)
+        const aiResponse = await sendToFreeAI(messageToSend);
         
-        if (freeAiResponse) {
-          // Got response from free AI
-          setIsAiTyping(false);
-          const aiResponse: Message = {
+        setIsAiTyping(false);
+        
+        if (aiResponse) {
+          // Got response from AI
+          const aiMessage: Message = {
             id: Date.now().toString() + '-ai-' + Math.random().toString(36).substr(2, 9),
-            text: freeAiResponse,
+            text: aiResponse,
             sender: 'aspen',
             timestamp: new Date(),
           };
           
-          setAiMessages(prev => [...prev, aiResponse]);
+          setAiMessages(prev => [...prev, aiMessage]);
           setContacts(c => c.map(contact => 
-            contact.id === 'cruz' ? { ...contact, lastMessage: freeAiResponse.substring(0, 50) + (freeAiResponse.length > 50 ? '...' : ''), timestamp: new Date() } : contact
+            contact.id === 'cruz' ? { ...contact, lastMessage: aiResponse.substring(0, 50) + (aiResponse.length > 50 ? '...' : ''), timestamp: new Date() } : contact
           ));
           
           setTimeout(() => {
             scrollViewRef.current?.scrollToEnd({ animated: true });
           }, 100);
         } else {
-          // Fallback to rork agent
-          const prompt = `You are Cruz's Helper, a friendly and helpful AI assistant. Answer the user's question directly and concisely. If the user asks about weather, news, facts, or anything that would need current information, provide the best answer you can based on your knowledge. Always give a single, clear, well-formatted response. Never split your answer into multiple messages. Be conversational and helpful.\n\nUser question: ${messageToSend}`;
-          await sendAiMessage(prompt);
+          // Show error message
+          const errorMsg: Message = {
+            id: Date.now().toString() + '-error',
+            text: "Sorry, I'm having trouble responding right now. Please try again.",
+            sender: 'aspen',
+            timestamp: new Date(),
+          };
+          setAiMessages(prev => [...prev, errorMsg]);
+          setContacts(c => c.map(contact => 
+            contact.id === 'cruz' ? { ...contact, lastMessage: "Error - please try again", timestamp: new Date() } : contact
+          ));
         }
         console.log("AI message sent successfully");
       } catch (error) {
@@ -1665,7 +1604,7 @@ export default function CalculatorApp() {
       const clientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || _0xgc;
       
       const redirectUri = AuthSession.makeRedirectUri({
-        scheme: 'rork-app',
+        scheme: 'cruzer-app',
         path: 'auth/callback',
       });
 

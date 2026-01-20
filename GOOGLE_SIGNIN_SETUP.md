@@ -55,7 +55,7 @@ Google accounts are now clearly identified in the Developer Panel with:
 - Copy the **iOS Client ID**
 
 #### For Android:
-- Package name: `app.rork.cruzer`
+- Package name: `app.cruzer.mobile`
 - SHA-1 fingerprint: Get from your keystore
   ```bash
   # Debug keystore (for development)
@@ -67,7 +67,7 @@ Google accounts are now clearly identified in the Developer Panel with:
 - Authorized redirect URIs:
   - `https://auth.expo.io/@cruzzerapps/cruzer-dev`
   - `exp://localhost:8081`
-  - Add your custom scheme: `rork-app://auth/callback`
+  - Add your custom scheme: `cruzer-app://auth/callback`
 
 ### 5. Add Client ID to Environment
 
@@ -124,7 +124,7 @@ EXPO_PUBLIC_GOOGLE_CLIENT_ID=YOUR-CLIENT-ID-HERE.apps.googleusercontent.com
 - Ensure OAuth consent screen is published (not in testing mode with no test users)
 
 ### Redirect issues
-- Verify `scheme: 'rork-app'` matches in both `app.json` and OAuth config
+- Verify `scheme: 'cruzer-app'` matches in both `app.json` and OAuth config
 - Check redirect URIs are added in Google Cloud Console
 
 ### iOS Specific
@@ -133,7 +133,7 @@ EXPO_PUBLIC_GOOGLE_CLIENT_ID=YOUR-CLIENT-ID-HERE.apps.googleusercontent.com
 
 ### Android Specific
 - Ensure SHA-1 fingerprint is correct
-- Package name must match: `app.rork.cruzer`
+- Package name must match: `app.cruzer.mobile`
 - Use the correct keystore (debug vs release)
 
 ## Production Checklist

@@ -1,0 +1,20 @@
+{
+  "typescript.tsdk": "node_modules/typescript/lib",
+  "typescript.enablePromptUseWorkspaceTsdk": true,
+  "typescript.defaultProject": "./tsconfig.json",
+  "files.exclude": {
+    "node_modules/**": true
+  },
+  "search.exclude": {
+    "node_modules": true,
+    ".expo": true
+  },
+  "[typescript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.formatOnSave": true
+  },
+  "problems.exclude": {
+    "**/node_modules/**": true,
+    "**/*.d.ts": true
+  }
+}

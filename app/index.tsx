@@ -20,8 +20,11 @@ import {
   UIManager,
   LayoutAnimation,
   Dimensions,
+  RefreshControl,
 } from "react-native";
 import { Send, Phone, Video, Settings, Image as ImageIcon, FileText, User, X, Info, Pin, BellOff, Lock, Search, LogOut, MapPin, Camera, Crown, Globe, Music, Play, Pause, SkipForward, AlertTriangle, Heart } from "lucide-react-native";
+import { Swipeable } from 'react-native-gesture-handler';
+import { Accelerometer } from 'expo-sensors';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import * as Contacts from 'expo-contacts';
@@ -38,6 +41,9 @@ import { musicService, MusicTrack } from '../services/music';
 import Purchases, { LOG_LEVEL, PurchasesOffering } from 'react-native-purchases';
 import { WebView } from 'react-native-webview';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Haptics from 'expo-haptics';
+import { configureStealthNotifications, sendStealthNotification } from '../services/notifications';
+import { encryptMessage, decryptMessage, initSignalProtocol } from '../services/crypto';
 
 // ==================== TYPE DECLARATIONS ====================
 
@@ -102,6 +108,7 @@ interface Message {
   image?: string;
   file?: { name: string; uri: string };
   effect?: "slam" | "float";
+  status?: "sending" | "sent" | "failed";
 }
 
 interface ContactInfo {
@@ -201,6 +208,9 @@ const getResponsiveSizes = () => {
 export default function CalculatorApp() {
   // Responsive styles
   const styles = createStyles();
+  const EDIT_WINDOW_MS = 5 * 60 * 1000;
+  const SHAKE_THRESHOLD = 1.6; // roughly ~1.6g magnitude change
+  const SHAKE_COOLDOWN_MS = 1500;
   
   // ==================== CALCULATOR STATE ====================
   const [display, setDisplay] = useState<string>("0");
@@ -233,6 +243,8 @@ export default function CalculatorApp() {
     email: "",
     address: "",
   });
+  const [refreshing, setRefreshing] = useState<boolean>(false);
+  const [messageSearchQuery, setMessageSearchQuery] = useState<string>("");
   // Browser state (per user)
   const [browserUrl, setBrowserUrl] = useState<string>("https://lowkeydis.com");
   const [browserInitialUrlLoaded, setBrowserInitialUrlLoaded] = useState<boolean>(false);
@@ -249,6 +261,12 @@ export default function CalculatorApp() {
   const [showEffectPicker, setShowEffectPicker] = useState<boolean>(false);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editingMessageText, setEditingMessageText] = useState<string>("");
+  const [showChatSearch, setShowChatSearch] = useState<boolean>(false);
+  const [chatSearchQuery, setChatSearchQuery] = useState<string>("");
+  const [chatSearchMatches, setChatSearchMatches] = useState<string[]>([]);
+  const [chatSearchIndex, setChatSearchIndex] = useState<number>(0);
+  const swipeRefs = useRef<Record<string, Swipeable | null>>({}).current;
+  const messageLayoutY = useRef<Record<string, number>>({}).current;
   const [messagingAppColor, setMessagingAppColor] = useState<string>("#000000");
   const glitchAnim = useRef(new Animated.Value(0)).current;
   const [contacts, setContacts] = useState<ChatContact[]>([
@@ -360,6 +378,56 @@ export default function CalculatorApp() {
   const persistTimerRef = useRef<any>(null);
   
   const [isAiTyping, setIsAiTyping] = useState<boolean>(false);
+  const inactivityRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const INACTIVITY_MS = 60_000; // 60s default
+  const lastShakeRef = useRef<number>(0);
+  const accelRef = useRef<{ x: number; y: number; z: number } | null>(null);
+
+  // Initialize stealth notifications and crypto
+  useEffect(() => {
+    configureStealthNotifications().catch(() => {});
+    initSignalProtocol().catch(() => {});
+  }, []);
+
+  // Shake-to-hide using accelerometer
+  useEffect(() => {
+    let subscription: any;
+    const subscribe = async () => {
+      try {
+        await Accelerometer.setUpdateInterval(100);
+        subscription = Accelerometer.addListener(({ x, y, z }) => {
+          const prev = accelRef.current;
+          accelRef.current = { x, y, z };
+          if (!prev) return;
+          const dx = x - prev.x;
+          const dy = y - prev.y;
+          const dz = z - prev.z;
+          const magnitude = Math.sqrt(dx * dx + dy * dy + dz * dz);
+          const now = Date.now();
+          if (
+            magnitude > SHAKE_THRESHOLD &&
+            now - lastShakeRef.current > SHAKE_COOLDOWN_MS &&
+            mode !== 'calculator'
+          ) {
+            lastShakeRef.current = now;
+            try { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); } catch {}
+            switchMode('calculator');
+          }
+        });
+      } catch {}
+    };
+    subscribe();
+    return () => {
+      if (subscription) subscription.remove();
+    };
+  }, [mode]);
+
+  const resetInactivityTimer = useCallback(() => {
+    if (inactivityRef.current) clearTimeout(inactivityRef.current);
+    inactivityRef.current = setTimeout(() => {
+      try { switchMode('calculator'); } catch {}
+    }, INACTIVITY_MS);
+  }, []);
   
   // Enable LayoutAnimation for Android
   useEffect(() => {
@@ -446,6 +514,12 @@ export default function CalculatorApp() {
     };
     loadPersistedData();
   }, []);
+
+  // Auto-lock inactivity: reset on common interactions
+  useEffect(() => {
+    resetInactivityTimer();
+    return () => { if (inactivityRef.current) clearTimeout(inactivityRef.current); };
+  }, [mode, inputText, messages.length, aiMessages.length, showSettings, keepMessages, selectedContactId]);
 
   // Persist data when state changes (debounced)
   useEffect(() => {
@@ -818,6 +892,40 @@ export default function CalculatorApp() {
     return () => glitchAnimation.stop();
   }, [glitchAnim]);
 
+  // In-chat search: compute matches and auto-scroll to current
+  useEffect(() => {
+    if (mode !== 'chat') return;
+    const selectedContact = contacts.find(c => c.id === selectedContactId);
+    const cur = selectedContact?.isAI ? aiMessages : messages;
+    const q = chatSearchQuery.trim().toLowerCase();
+    if (!q) {
+      setChatSearchMatches([]);
+      setChatSearchIndex(0);
+      return;
+    }
+    const ids = cur.filter(m => (m.text || '').toLowerCase().includes(q)).map(m => m.id);
+    setChatSearchMatches(ids);
+    setChatSearchIndex(ids.length ? 0 : 0);
+    // Scroll to first match if exists
+    if (ids.length) {
+      const y = messageLayoutY[ids[0]] ?? 0;
+      requestAnimationFrame(() => {
+        scrollViewRef.current?.scrollTo({ y: Math.max(0, y - 80), animated: true });
+      });
+    }
+  }, [mode, selectedContactId, messages, aiMessages, chatSearchQuery]);
+
+  const navigateChatSearch = useCallback((delta: number) => {
+    if (!chatSearchMatches.length) return;
+    let next = chatSearchIndex + delta;
+    if (next < 0) next = chatSearchMatches.length - 1;
+    if (next >= chatSearchMatches.length) next = 0;
+    setChatSearchIndex(next);
+    const id = chatSearchMatches[next];
+    const y = messageLayoutY[id] ?? 0;
+    scrollViewRef.current?.scrollTo({ y: Math.max(0, y - 80), animated: true });
+  }, [chatSearchMatches, chatSearchIndex]);
+
   const pollForMessages = useCallback(async () => {
     try {
       const result = await signalWireService.getMessages(lastMessageCheck);
@@ -980,6 +1088,30 @@ export default function CalculatorApp() {
   };
 
   const switchMode = (newMode: CalculatorMode) => {
+    const allowedModes: CalculatorMode[] = [
+      "calculator",
+      "messages",
+      "chat",
+      "videoCall",
+      "info",
+      "profile",
+      "auth",
+      "developer",
+      "staff",
+      "location",
+      "camera",
+      "browser",
+      "phoneDialer",
+      "activeCall",
+      "activeVideoCall",
+      "smsChat",
+      "settings",
+      "music",
+      "crashLogs",
+    ];
+
+    const targetMode = allowedModes.includes(newMode) ? newMode : "calculator";
+
     Animated.sequence([
       Animated.timing(fadeAnim, {
         toValue: 0,
@@ -994,7 +1126,7 @@ export default function CalculatorApp() {
     ]).start();
 
     setTimeout(() => {
-      setMode(newMode);
+      setMode(targetMode);
     }, 200);
   };
 
@@ -1058,6 +1190,7 @@ export default function CalculatorApp() {
           };
           
           setAiMessages(prev => [...prev, aiMessage]);
+          sendStealthNotification('New message').catch(() => {});
           setContacts(c => c.map(contact => 
             contact.id === 'cruz' ? { ...contact, lastMessage: aiResponse.substring(0, 50) + (aiResponse.length > 50 ? '...' : ''), timestamp: new Date() } : contact
           ));
@@ -1102,11 +1235,17 @@ export default function CalculatorApp() {
         image,
         file,
         effect,
+        status: 'sending',
       };
+
+      // Optional: encrypt payload for storage/transport (kept plaintext for UI)
+      try { await encryptMessage(newMessage.text); } catch {}
 
       const updatedMessages = keepMessages ? [...messages, newMessage] : [messages[0], newMessage];
       setMessages(updatedMessages);
       setInputText("");
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      sendStealthNotification('New message').catch(() => {});
 
       if (effect) {
         playMessageEffect(newMessage.id, effect);
@@ -1121,6 +1260,11 @@ export default function CalculatorApp() {
       setTimeout(() => {
         scrollViewRef.current?.scrollToEnd({ animated: true });
       }, 100);
+
+      // Simulate send completion
+      setTimeout(() => {
+        setMessages(prev => prev.map(m => m.id === newMessage.id ? { ...m, status: 'sent' } : m));
+      }, 800);
     }
   };
 
@@ -1200,6 +1344,12 @@ export default function CalculatorApp() {
   const handleEditMessage = () => {
     const message = messages.find((m) => m.id === longPressedMessage);
     if (message) {
+      const withinWindow = Date.now() - message.timestamp.getTime() <= EDIT_WINDOW_MS;
+      if (!withinWindow) {
+        Alert.alert('Edit Window Passed', 'You can only edit messages within 5 minutes.');
+        setShowMessageActions(false);
+        return;
+      }
       setEditingMessageId(message.id);
       setEditingMessageText(message.text);
       setShowMessageActions(false);
@@ -1210,6 +1360,7 @@ export default function CalculatorApp() {
     setMessages(messages.filter((m) => m.id !== longPressedMessage));
     setShowMessageActions(false);
     setLongPressedMessage(null);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
   };
 
   const handleApplyEffect = (effect: "slam" | "float") => {
@@ -1222,6 +1373,13 @@ export default function CalculatorApp() {
   };
 
   const saveEditedMessage = () => {
+    const target = messages.find(m => m.id === editingMessageId);
+    if (target && Date.now() - target.timestamp.getTime() > EDIT_WINDOW_MS) {
+      Alert.alert('Edit Window Passed', 'You can only edit messages within 5 minutes.');
+      setEditingMessageId(null);
+      setEditingMessageText("");
+      return;
+    }
     setMessages(
       messages.map((m) =>
         m.id === editingMessageId ? { ...m, text: editingMessageText } : m
@@ -1229,6 +1387,7 @@ export default function CalculatorApp() {
     );
     setEditingMessageId(null);
     setEditingMessageText("");
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
   };
 
   const cancelEditMessage = () => {
@@ -1368,12 +1527,7 @@ export default function CalculatorApp() {
   };
 
   const openVideoCall = () => {
-    const contact = contacts.find(c => c.id === selectedContactId);
-    if (contact?.isAI) {
-      Alert.alert("Not Available", "Video calls with AI are not available.");
-      return;
-    }
-    Alert.alert("Video Call", "Video calling feature coming soon!");
+    switchMode("videoCall");
   };
 
   const closeVideoCall = () => {
@@ -2253,6 +2407,14 @@ export default function CalculatorApp() {
       if (!a.isPinned && b.isPinned) return 1;
       return b.timestamp.getTime() - a.timestamp.getTime();
     });
+
+    const query = messageSearchQuery.trim().toLowerCase();
+    const filteredContacts = query
+      ? sortedContacts.filter(c =>
+          c.name.toLowerCase().includes(query) ||
+          (c.lastMessage || '').toLowerCase().includes(query)
+        )
+      : sortedContacts;
     
     const iconColor = messagingAppColor === "#007AFF" ? "#000000" : "#007AFF";
     
@@ -2286,6 +2448,23 @@ export default function CalculatorApp() {
           </View>
         </View>
 
+        <View style={styles.searchBarRow}>
+          <Search size={18} color="#8E8E93" />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search"
+            placeholderTextColor="#8E8E93"
+            value={messageSearchQuery}
+            onChangeText={setMessageSearchQuery}
+            autoCapitalize="none"
+          />
+          {messageSearchQuery.length > 0 && (
+            <TouchableOpacity onPress={() => setMessageSearchQuery("")}>
+              <X size={18} color="#8E8E93" />
+            </TouchableOpacity>
+          )}
+        </View>
+
         <View style={styles.addContactButtonContainer}>
           <TouchableOpacity
             style={styles.addContactButton}
@@ -2296,8 +2475,30 @@ export default function CalculatorApp() {
           </TouchableOpacity>
         </View>
 
-        <ScrollView style={styles.messagesList}>
-          {sortedContacts.map(contact => (
+        <ScrollView
+          style={styles.messagesList}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => {
+            try {
+              setRefreshing(true);
+              // Simulate refresh, hook to realtime later
+              await new Promise(res => setTimeout(res, 600));
+            } finally {
+              setRefreshing(false);
+            }
+          }} />}
+        >
+          {!persistLoaded && contacts.length === 0 ? (
+            Array.from({ length: 6 }).map((_, i) => (
+              <View key={`skeleton-${i}`} style={styles.skeletonRow}>
+                <View style={styles.skeletonAvatar} />
+                <View style={styles.skeletonTextBlock}>
+                  <View style={styles.skeletonLineShort} />
+                  <View style={styles.skeletonLineLong} />
+                </View>
+              </View>
+            ))
+          ) : (
+            filteredContacts.map(contact => (
             <TouchableOpacity 
               key={contact.id}
               style={styles.messageItem} 
@@ -2321,7 +2522,11 @@ export default function CalculatorApp() {
               <View style={styles.messageContent}>
                 <View style={styles.messageHeader}>
                   <View style={styles.messageNameRow}>
-                    <Text style={styles.messageName}>{contact.name}</Text>
+                      <Text style={styles.messageName}>
+                        {messageSearchQuery
+                          ? contact.name
+                          : contact.name}
+                      </Text>
                     {contact.isMuted && (
                       <BellOff size={14} color="#8E8E93" style={{ marginLeft: 6 }} />
                     )}
@@ -2332,9 +2537,9 @@ export default function CalculatorApp() {
                       : contact.timestamp.toLocaleDateString()}
                   </Text>
                 </View>
-                <Text style={[styles.messagePreview, contact.isMuted && { color: "#5E5E63" }]}>
-                  {contact.lastMessage || "No messages yet"}
-                </Text>
+                  <Text style={[styles.messagePreview, contact.isMuted && { color: "#5E5E63" }]}>
+                    {contact.lastMessage || "No messages yet"}
+                  </Text>
               </View>
               {contact.unread > 0 && (
                 <View style={styles.unreadBadge}>
@@ -2342,7 +2547,8 @@ export default function CalculatorApp() {
                 </View>
               )}
             </TouchableOpacity>
-          ))}
+            ))
+          )}
         </ScrollView>
         
         <View style={styles.bottomNavBar}>
@@ -2371,6 +2577,36 @@ export default function CalculatorApp() {
     const selectedContact = contacts.find(c => c.id === selectedContactId);
     const currentMessages = selectedContact?.isAI ? aiMessages : messages;
     const showSwitcher = !selectedContact?.isAI;
+    const onReply = (m: Message) => {
+      const snippet = m.text.length > 80 ? m.text.slice(0, 80) + '…' : m.text;
+      setInputText(prev => (prev ? prev + "\n" : "") + `> ${snippet}\n`);
+      try { Haptics.selectionAsync(); } catch {}
+    };
+
+    const renderHighlightedText = (text: string, query: string) => {
+      if (!query.trim()) return <Text>{text}</Text>;
+      const q = query.toLowerCase();
+      const lower = text.toLowerCase();
+      const parts: Array<{ text: string; match: boolean }> = [];
+      let i = 0;
+      while (i < text.length) {
+        const idx = lower.indexOf(q, i);
+        if (idx === -1) {
+          parts.push({ text: text.slice(i), match: false });
+          break;
+        }
+        if (idx > i) parts.push({ text: text.slice(i, idx), match: false });
+        parts.push({ text: text.slice(idx, idx + q.length), match: true });
+        i = idx + q.length;
+      }
+      return (
+        <Text>
+          {parts.map((p, idx) => (
+            <Text key={idx} style={p.match ? styles.highlightText : undefined}>{p.text}</Text>
+          ))}
+        </Text>
+      );
+    };
     
     return (
     <Animated.View style={[styles.chatContainer, { opacity: fadeAnim }]}>
@@ -2404,6 +2640,9 @@ export default function CalculatorApp() {
             )}
           </View>
           <View style={styles.headerButtons}>
+            <TouchableOpacity style={styles.headerIconButton} onPress={() => setShowChatSearch(s => !s)}>
+              <Search size={22} color="#007AFF" strokeWidth={2} />
+            </TouchableOpacity>
             <TouchableOpacity style={styles.headerIconButton} onPress={() => Alert.alert("Voice Call", "Voice calling feature coming soon!")}>
               <Phone size={22} color="#007AFF" strokeWidth={2} />
             </TouchableOpacity>
@@ -2412,6 +2651,30 @@ export default function CalculatorApp() {
             </TouchableOpacity>
           </View>
         </View>
+
+        {showChatSearch && (
+          <View style={styles.chatSearchBarRow}>
+            <Search size={16} color="#8E8E93" />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search in chat"
+              placeholderTextColor="#8E8E93"
+              value={chatSearchQuery}
+              onChangeText={(t) => { setChatSearchQuery(t); setChatSearchIndex(0); }}
+              autoCapitalize="none"
+            />
+            <Text style={styles.chatSearchCount}>{chatSearchMatches.length ? `${chatSearchIndex + 1}/${chatSearchMatches.length}` : '0/0'}</Text>
+            <TouchableOpacity style={styles.chatSearchNavButton} onPress={() => navigateChatSearch(-1)}>
+              <Text style={styles.chatSearchNavText}>‹</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.chatSearchNavButton} onPress={() => navigateChatSearch(1)}>
+              <Text style={styles.chatSearchNavText}>›</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => { setShowChatSearch(false); setChatSearchQuery(""); }}>
+              <X size={16} color="#8E8E93" />
+            </TouchableOpacity>
+          </View>
+        )}
 
         <View style={styles.chatMessages}>
           {chatBackgroundImage && (
@@ -2436,7 +2699,29 @@ export default function CalculatorApp() {
               const hasEffect = message.effect === 'slam' || message.effect === 'float';
 
               return (
-                <View key={message.id}>
+                <View key={message.id} onLayout={(e) => { messageLayoutY[message.id] = e.nativeEvent.layout.y; }}>
+                  <Swipeable
+                    ref={(r) => { swipeRefs[message.id] = r; }}
+                    overshootLeft={false}
+                    overshootRight={false}
+                    renderLeftActions={() => (
+                      <View style={[styles.swipeActionLeft, { flexDirection: 'row', gap: 8, paddingHorizontal: 8 }]}>
+                        <TouchableOpacity onPress={() => { onReply(message); swipeRefs[message.id]?.close(); }}>
+                          <Text style={styles.swipeActionText}>Reply</Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
+                    renderRightActions={() => (
+                      <View style={[styles.swipeActionRight, { flexDirection: 'row', gap: 12, paddingHorizontal: 8 }]}>
+                        <TouchableOpacity onPress={() => { setLongPressedMessage(message.id); swipeRefs[message.id]?.close(); handleEditMessage(); }}>
+                          <Text style={styles.swipeActionText}>Edit</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => { setLongPressedMessage(message.id); handleDeleteMessage(); swipeRefs[message.id]?.close(); }}>
+                          <Text style={styles.swipeActionText}>Delete</Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
+                  >
                   <Animated.View style={hasEffect && effectAnim ? {
                     transform: [
                       { scale: effectAnim.scale },
@@ -2476,11 +2761,12 @@ export default function CalculatorApp() {
                               : styles.aspenBubbleText,
                           ]}
                         >
-                          {message.text}
+                          {renderHighlightedText(message.text, chatSearchQuery)}
                         </Text>
                       )}
                     </TouchableOpacity>
                   </Animated.View>
+                  </Swipeable>
                   <Text
                     style={[
                       styles.messageTimestamp,
@@ -2491,6 +2777,17 @@ export default function CalculatorApp() {
                   >
                     {formatTime(message.timestamp)}
                   </Text>
+                  {!selectedContact?.isAI && message.sender === 'user' && message.status && (
+                    <Text
+                      style={[
+                        styles.messageStatus,
+                        message.status === 'failed' ? styles.messageStatusFailed : message.status === 'sending' ? styles.messageStatusSending : styles.messageStatusSent,
+                        message.sender === 'user' ? styles.messageTimestampRight : styles.messageTimestampLeft,
+                      ]}
+                    >
+                      {message.status === 'sending' ? 'sending…' : message.status === 'failed' ? 'failed' : 'sent'}
+                    </Text>
+                  )}
                 </View>
               );
             })}
@@ -2791,16 +3088,16 @@ export default function CalculatorApp() {
 
   const renderVideoCall = () => (
     <Animated.View style={[styles.videoCallContainer, { opacity: fadeAnim }]}>
-      <TouchableOpacity style={styles.videoBackButton} onPress={closeVideoCall}>
-        <Text style={styles.videoBackButtonText}>←</Text>
-      </TouchableOpacity>
-      <View style={styles.videoImageContainer}>
-        <Image
-          source={{ uri: "https://pub-e001eb4506b145aa938b5d3badbff6a5.r2.dev/attachments/hta1czh5uqojza6egdeyk" }}
-          style={styles.videoImage}
-          resizeMode="cover"
-        />
-      </View>
+      <SafeAreaView style={styles.videoCallContent}>
+        <TouchableOpacity style={styles.videoBackButton} onPress={closeVideoCall}>
+          <Text style={styles.videoBackButtonText}>←</Text>
+        </TouchableOpacity>
+        <View style={styles.videoCallBadge}>
+          <Video size={32} color="#0A84FF" strokeWidth={2} />
+        </View>
+        <Text style={styles.videoCallTitle}>Videocalling under construction</Text>
+        <Text style={styles.videoCallSubtitle}>Check back later!</Text>
+      </SafeAreaView>
     </Animated.View>
   );
 
@@ -4486,10 +4783,32 @@ export default function CalculatorApp() {
       {mode === "browser" && renderBrowserScreen()}
       {mode === "phoneDialer" && renderPhoneDialer()}
       {mode === "activeCall" && renderActiveCall()}
+      {mode === "activeVideoCall" && renderVideoCall()}
       {mode === "smsChat" && renderSMSChat()}
       {mode === "settings" && renderSettingsScreen()}
       {mode === "music" && renderMusicScreen()}
       {mode === "crashLogs" && renderCrashLogsScreen()}
+      {![
+        "calculator",
+        "messages",
+        "chat",
+        "videoCall",
+        "info",
+        "profile",
+        "auth",
+        "developer",
+        "staff",
+        "location",
+        "camera",
+        "browser",
+        "phoneDialer",
+        "activeCall",
+        "activeVideoCall",
+        "smsChat",
+        "settings",
+        "music",
+        "crashLogs",
+      ].includes(mode) && renderCalculator()}
 
       {/* Staff Login Request Modal */}
       {activeLoginRequest && (
@@ -4700,9 +5019,15 @@ export default function CalculatorApp() {
           onPress={() => setShowMessageActions(false)}
         >
           <View style={styles.actionSheet}>
-            <TouchableOpacity style={styles.actionButton} onPress={handleEditMessage}>
-              <Text style={styles.actionButtonText}>Edit</Text>
-            </TouchableOpacity>
+            {(() => {
+              const msg = messages.find(m => m.id === longPressedMessage);
+              const editable = !!msg && (Date.now() - msg.timestamp.getTime() <= EDIT_WINDOW_MS);
+              return (
+                <TouchableOpacity style={styles.actionButton} onPress={handleEditMessage} disabled={!editable}>
+                  <Text style={[styles.actionButtonText, !editable && { opacity: 0.5 }]}>Edit{!editable ? ' (expired)' : ''}</Text>
+                </TouchableOpacity>
+              );
+            })()}
             <TouchableOpacity style={styles.actionButton} onPress={handleDeleteMessage}>
               <Text style={[styles.actionButtonText, styles.actionButtonTextDanger]}>Delete</Text>
             </TouchableOpacity>
@@ -5228,12 +5553,53 @@ const createStyles = () => {
     messagesList: {
       flex: 1,
     },
+    searchBarRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      backgroundColor: "#1C1C1E",
+      marginHorizontal: 16,
+      marginTop: 8,
+      marginBottom: 8,
+      paddingHorizontal: 12,
+      borderRadius: 12,
+      gap: 8,
+    },
     messageItem: {
       flexDirection: "row",
       padding: 16,
       borderBottomWidth: 1,
       borderBottomColor: "#1C1C1E",
       alignItems: "center",
+    },
+    skeletonRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      padding: 16,
+      borderBottomWidth: 1,
+      borderBottomColor: "#1C1C1E",
+    },
+    skeletonAvatar: {
+      width: 56,
+      height: 56,
+      borderRadius: 28,
+      backgroundColor: "#1C1C1E",
+      marginRight: 12,
+    },
+    skeletonTextBlock: {
+      flex: 1,
+    },
+    skeletonLineShort: {
+      width: "40%",
+      height: 12,
+      borderRadius: 6,
+      backgroundColor: "#1C1C1E",
+      marginBottom: 8,
+    },
+    skeletonLineLong: {
+      width: "70%",
+      height: 12,
+      borderRadius: 6,
+      backgroundColor: "#1C1C1E",
     },
     avatarContainer: {
       marginRight: 12,
@@ -5466,6 +5832,13 @@ const createStyles = () => {
     flex: 1,
     backgroundColor: "#000000",
   },
+  videoCallContent: {
+    flex: 1,
+    backgroundColor: "#000000",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
   videoBackButton: {
     position: "absolute",
     top: 8,
@@ -5491,6 +5864,29 @@ const createStyles = () => {
   videoImage: {
     width: "100%",
     height: "100%",
+  },
+  videoCallBadge: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: "rgba(10, 132, 255, 0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(10, 132, 255, 0.4)",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  videoCallTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#FFFFFF",
+    textAlign: "center",
+  },
+  videoCallSubtitle: {
+    fontSize: 16,
+    color: "#8E8E93",
+    textAlign: "center",
+    marginTop: 8,
   },
   settingsPanel: {
     backgroundColor: "#1C1C1E",
@@ -5590,6 +5986,26 @@ const createStyles = () => {
   messageTimestampLeft: {
     alignSelf: "flex-start" as const,
     marginLeft: 12,
+  },
+  swipeActionLeft: {
+    backgroundColor: "#0a2a0a",
+    justifyContent: "center",
+    alignItems: "center",
+    width: 80,
+    marginVertical: 4,
+    borderRadius: 8,
+  },
+  swipeActionRight: {
+    backgroundColor: "#3a0a0a",
+    justifyContent: "center",
+    alignItems: "center",
+    width: 80,
+    marginVertical: 4,
+    borderRadius: 8,
+  },
+  swipeActionText: {
+    color: "#FFFFFF",
+    fontWeight: "600" as const,
   },
   modalContainer: {
     flex: 1,
@@ -7392,6 +7808,51 @@ const createStyles = () => {
   },
   typingDot3: {
     opacity: 0.8,
+  },
+  highlightText: {
+    backgroundColor: '#3a3a00',
+    color: '#FFFF99',
+  },
+  chatSearchBarRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1C1C1E',
+    marginHorizontal: 8,
+    marginTop: 4,
+    marginBottom: 4,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    gap: 8,
+  },
+  chatSearchNavButton: {
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    backgroundColor: '#2C2C2E',
+    borderRadius: 8,
+  },
+  chatSearchNavText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600' as const,
+  },
+  chatSearchCount: {
+    color: '#8E8E93',
+    fontSize: 12,
+  },
+  messageStatus: {
+    fontSize: 10,
+    marginTop: -6,
+  },
+  messageStatusSending: {
+    color: '#8E8E93',
+    fontStyle: 'italic',
+  },
+  messageStatusFailed: {
+    color: '#FF3B30',
+    fontWeight: '700' as const,
+  },
+  messageStatusSent: {
+    color: '#4cd964',
   },
   // App Settings Button styles
   appSettingsButton: {

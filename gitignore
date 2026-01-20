@@ -35,6 +35,9 @@ yarn-error.*
 .env.test.local
 .env.production.local
 
+# Security documentation (contains sensitive info)
+SECURITY_REFERENCE.md
+
 # macOS
 .DS_Store
 *.pem

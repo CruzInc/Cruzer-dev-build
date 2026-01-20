@@ -65,7 +65,7 @@ Google accounts are now clearly identified in the Developer Panel with:
 
 #### For Web (Development/Testing):
 - Authorized redirect URIs:
-  - `https://auth.expo.io/@cruzerapps/cruzer-dev`
+  - `https://auth.expo.io/@cruzzerapps/cruzer-dev`
   - `exp://localhost:8081`
   - Add your custom scheme: `rork-app://auth/callback`
 

@@ -32,7 +32,7 @@ import { useRorkAgent } from "@rork-ai/toolkit-sdk";
 import MapView, { Marker } from 'react-native-maps';
 import * as WebBrowser from 'expo-web-browser';
 import * as AuthSession from 'expo-auth-session';
-import { signalWireService } from '../services/signalwire';
+import { telnyxService } from '../services/telnyx';
 import { getAIResponse, ChatMessage } from '../services/ai';
 import Purchases, { LOG_LEVEL, PurchasesOffering } from 'react-native-purchases';
 import { WebView } from 'react-native-webview';
@@ -556,7 +556,7 @@ export default function CalculatorApp() {
 
   const pollForMessages = useCallback(async () => {
     try {
-      const result = await signalWireService.getMessages(lastMessageCheck);
+      const result = await telnyxService.getMessages(lastMessageCheck);
       
       if (result.success && result.messages && result.messages.length > 0) {
         const newMessages = result.messages.filter(msg => 
@@ -2752,11 +2752,11 @@ export default function CalculatorApp() {
     };
     setCallLogs([newCallLog, ...callLogs]);
     
-    const result = await signalWireService.makeCall(dialerInput);
+    const result = await telnyxService.makeCall(dialerInput);
     
-    if (result.success && result.sid) {
-      console.log("SignalWire call initiated:", result.sid);
-      setActiveCallSid(result.sid);
+    if (result.success && result.id) {
+      console.log("Telnyx call initiated:", result.id);
+      setActiveCallSid(result.id);
       
       callTimerRef.current = setInterval(() => {
         setActiveCallDuration(prev => prev + 1);
@@ -2777,7 +2777,7 @@ export default function CalculatorApp() {
     }
     
     if (activeCallSid) {
-      const result = await signalWireService.endCall(activeCallSid);
+      const result = await telnyxService.endCall(activeCallSid);
       if (result.success) {
         console.log("Call ended successfully");
       } else {
@@ -2867,7 +2867,7 @@ export default function CalculatorApp() {
     
     console.log("Sending SMS to:", conversation.phoneNumber, "Message:", messageText);
     
-    const result = await signalWireService.sendSMS(conversation.phoneNumber, messageText);
+    const result = await telnyxService.sendSMS(conversation.phoneNumber, messageText);
     
     setSmsConversations(prevConvos => prevConvos.map(c => 
       c.id === selectedSMSConversation
@@ -2885,7 +2885,7 @@ export default function CalculatorApp() {
     if (!result.success) {
       Alert.alert("Message Failed", result.error || "Unable to send message");
     } else {
-      console.log("SMS sent successfully:", result.sid);
+      console.log("SMS sent successfully:", result.id);
     }
   };
 

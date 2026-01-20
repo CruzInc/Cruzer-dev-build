@@ -19,6 +19,8 @@ import {
   ActivityIndicator,
   UIManager,
   LayoutAnimation,
+  useWindowDimensions,
+  Dimensions,
 } from "react-native";
 import { Send, Phone, Video, Settings, Image as ImageIcon, FileText, User, X, Info, Pin, BellOff, Lock, Search, LogOut, MapPin, Camera, Crown } from "lucide-react-native";
 import * as ImagePicker from 'expo-image-picker';
@@ -125,7 +127,27 @@ interface LocationData {
 
 type LocationVisibility = "everyone" | "contacts" | "nobody" | "silent";
 
+// Responsive sizing helper
+const getResponsiveSizes = () => {
+  const screenWidth = Dimensions.get('window').width;
+  const screenHeight = Dimensions.get('window').height;
+  
+  // Scale based on smaller dimension to handle portrait/landscape
+  const minDimension = Math.min(screenWidth, screenHeight);
+  
+  return {
+    displayFontSize: Math.max(48, Math.min(72, minDimension * 0.15)),
+    buttonFontSize: Math.max(24, Math.min(32, minDimension * 0.08)),
+    operatorFontSize: Math.max(28, Math.min(40, minDimension * 0.10)),
+    buttonMargin: Math.max(4, Math.min(6, minDimension * 0.01)),
+    paddingHorizontal: Math.max(8, Math.min(12, minDimension * 0.02)),
+  };
+};
+
 export default function CalculatorApp() {
+  // Create responsive styles on every render based on screen dimensions
+  const styles = createStyles();
+  
   const [display, setDisplay] = useState<string>("0");
   const [previousValue, setPreviousValue] = useState<string>("");
   const [operation, setOperation] = useState<string>("");
@@ -1260,8 +1282,6 @@ export default function CalculatorApp() {
       const clientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || '1046911026897-iqjnqvjcpfv0r4vvagm5m37g7b5g4i8e.apps.googleusercontent.com';
       
       const redirectUri = AuthSession.makeRedirectUri({
-        // Use the Expo AuthSession proxy so Google accepts the redirect URI (https)
-        useProxy: true,
         scheme: 'rork-app',
         path: 'auth/callback',
       });
@@ -3767,214 +3787,218 @@ const CalcButton: React.FC<CalcButtonProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#000000",
-  },
-  calculatorContainer: {
-    flex: 1,
-    justifyContent: "flex-end",
-    paddingBottom: 20,
-  },
-  displayContainer: {
-    paddingHorizontal: 24,
-    paddingVertical: 32,
-    alignItems: "flex-end",
-    minHeight: 120,
-    justifyContent: "flex-end",
-  },
-  displayText: {
-    color: "#FFFFFF",
-    fontSize: 72,
-    fontWeight: "300",
-    letterSpacing: -2,
-  },
-  buttonsContainer: {
-    paddingHorizontal: 12,
-  },
-  buttonRow: {
-    flexDirection: "row",
-    marginBottom: 12,
-  },
-  button: {
-    flex: 1,
-    aspectRatio: 1,
-    backgroundColor: "#333333",
-    borderRadius: 100,
-    margin: 6,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  buttonPressed: {
-    opacity: 0.7,
-    transform: [{ scale: 0.95 }],
-  },
-  buttonText: {
-    color: "#FFFFFF",
-    fontSize: 32,
-    fontWeight: "400",
-  },
-  zeroButton: {
-    flex: 2,
-  },
-  functionButton: {
-    backgroundColor: "#A5A5A5",
-  },
-  functionButtonText: {
-    color: "#000000",
-  },
-  operatorButton: {
-    backgroundColor: "#FF9F0A",
-  },
-  operatorButtonText: {
-    color: "#FFFFFF",
-    fontSize: 40,
-  },
-  messagesContainer: {
-    flex: 1,
-    backgroundColor: "#000000",
-  },
-  messagesHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#1C1C1E",
-  },
-  messagesTitle: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#FFFFFF",
-    textAlign: "center",
-    flex: 1,
-  },
-  cruzerTitle: {
-    fontSize: 24,
-    fontWeight: "900" as const,
-    color: "#00FF00",
-    textAlign: "center" as const,
-    textShadowColor: "#FF0000",
-    textShadowOffset: { width: 2, height: 2 },
-    textShadowRadius: 0,
-    letterSpacing: 4,
-    fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
-  },
-  messagesHeaderCenter: {
-    flex: 1,
-    alignItems: "center" as const,
-    justifyContent: "center" as const,
-  },
-  phoneNumberText: {
-    fontSize: 11,
-    color: "#8E8E93",
-    marginTop: 2,
-    fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
-  },
-  panicButton: {
-    width: 44,
-    height: 44,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  panicEmoji: {
-    fontSize: 24,
-  },
-  panicButtonSmall: {
-    width: 36,
-    height: 44,
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 4,
-  },
-  panicEmojiSmall: {
-    fontSize: 20,
-  },
-  chatHeaderLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  messagesList: {
-    flex: 1,
-  },
-  messageItem: {
-    flexDirection: "row",
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#1C1C1E",
-    alignItems: "center",
-  },
-  avatarContainer: {
-    marginRight: 12,
-  },
-  avatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: "#FF2D55",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  avatarText: {
-    color: "#FFFFFF",
-    fontSize: 24,
-    fontWeight: "600",
-  },
-  messageContent: {
-    flex: 1,
-  },
-  messageHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 4,
-  },
-  messageName: {
-    fontSize: 17,
-    fontWeight: "600",
-    color: "#FFFFFF",
-  },
-  messageTime: {
-    fontSize: 15,
-    color: "#8E8E93",
-  },
-  messagePreview: {
-    fontSize: 15,
-    color: "#8E8E93",
-    marginTop: 2,
-  },
-  unreadBadge: {
-    backgroundColor: "#007AFF",
-    borderRadius: 12,
-    width: 24,
-    height: 24,
-    justifyContent: "center",
-    alignItems: "center",
-    marginLeft: 8,
-  },
-  unreadText: {
-    color: "#FFFFFF",
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  chatContainer: {
-    flex: 1,
-    backgroundColor: "#000000",
-  },
-  chatKeyboardView: {
-    flex: 1,
-  },
-  chatHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 8,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#1C1C1E",
-  },
+// Create dynamic styles based on responsive sizing
+const createStyles = () => {
+  const sizes = getResponsiveSizes();
+  
+  return StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: "#000000",
+    },
+    calculatorContainer: {
+      flex: 1,
+      justifyContent: "flex-end",
+      paddingBottom: 20,
+    },
+    displayContainer: {
+      paddingHorizontal: sizes.paddingHorizontal,
+      paddingVertical: 24,
+      alignItems: "flex-end",
+      minHeight: 100,
+      justifyContent: "flex-end",
+    },
+    displayText: {
+      color: "#FFFFFF",
+      fontSize: sizes.displayFontSize,
+      fontWeight: "300",
+      letterSpacing: -2,
+    },
+    buttonsContainer: {
+      paddingHorizontal: sizes.paddingHorizontal,
+    },
+    buttonRow: {
+      flexDirection: "row",
+      marginBottom: sizes.buttonMargin,
+    },
+    button: {
+      flex: 1,
+      aspectRatio: 1,
+      backgroundColor: "#333333",
+      borderRadius: 100,
+      margin: sizes.buttonMargin,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    buttonPressed: {
+      opacity: 0.7,
+      transform: [{ scale: 0.95 }],
+    },
+    buttonText: {
+      color: "#FFFFFF",
+      fontSize: sizes.buttonFontSize,
+      fontWeight: "400",
+    },
+    zeroButton: {
+      flex: 2,
+    },
+    functionButton: {
+      backgroundColor: "#A5A5A5",
+    },
+    functionButtonText: {
+      color: "#000000",
+    },
+    operatorButton: {
+      backgroundColor: "#FF9F0A",
+    },
+    operatorButtonText: {
+      color: "#FFFFFF",
+      fontSize: sizes.operatorFontSize,
+    },
+    messagesContainer: {
+      flex: 1,
+      backgroundColor: "#000000",
+    },
+    messagesHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: "#1C1C1E",
+    },
+    messagesTitle: {
+      fontSize: 20,
+      fontWeight: "700",
+      color: "#FFFFFF",
+      textAlign: "center",
+      flex: 1,
+    },
+    cruzerTitle: {
+      fontSize: 24,
+      fontWeight: "900" as const,
+      color: "#00FF00",
+      textAlign: "center" as const,
+      textShadowColor: "#FF0000",
+      textShadowOffset: { width: 2, height: 2 },
+      textShadowRadius: 0,
+      letterSpacing: 4,
+      fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
+    },
+    messagesHeaderCenter: {
+      flex: 1,
+      alignItems: "center" as const,
+      justifyContent: "center" as const,
+    },
+    phoneNumberText: {
+      fontSize: 11,
+      color: "#8E8E93",
+      marginTop: 2,
+      fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
+    },
+    panicButton: {
+      width: 44,
+      height: 44,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    panicEmoji: {
+      fontSize: 24,
+    },
+    panicButtonSmall: {
+      width: 36,
+      height: 44,
+      justifyContent: "center",
+      alignItems: "center",
+      marginRight: 4,
+    },
+    panicEmojiSmall: {
+      fontSize: 20,
+    },
+    chatHeaderLeft: {
+      flexDirection: "row",
+      alignItems: "center",
+    },
+    messagesList: {
+      flex: 1,
+    },
+    messageItem: {
+      flexDirection: "row",
+      padding: 16,
+      borderBottomWidth: 1,
+      borderBottomColor: "#1C1C1E",
+      alignItems: "center",
+    },
+    avatarContainer: {
+      marginRight: 12,
+    },
+    avatar: {
+      width: 56,
+      height: 56,
+      borderRadius: 28,
+      backgroundColor: "#FF2D55",
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    avatarText: {
+      color: "#FFFFFF",
+      fontSize: 24,
+      fontWeight: "600",
+    },
+    messageContent: {
+      flex: 1,
+    },
+    messageHeader: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginBottom: 4,
+    },
+    messageName: {
+      fontSize: 17,
+      fontWeight: "600",
+      color: "#FFFFFF",
+    },
+    messageTime: {
+      fontSize: 15,
+      color: "#8E8E93",
+    },
+    messagePreview: {
+      fontSize: 15,
+      color: "#8E8E93",
+      marginTop: 2,
+    },
+    unreadBadge: {
+      backgroundColor: "#007AFF",
+      borderRadius: 12,
+      width: 24,
+      height: 24,
+      justifyContent: "center",
+      alignItems: "center",
+      marginLeft: 8,
+    },
+    unreadText: {
+      color: "#FFFFFF",
+      fontSize: 13,
+      fontWeight: "700",
+    },
+    chatContainer: {
+      flex: 1,
+      backgroundColor: "#000000",
+    },
+    chatKeyboardView: {
+      flex: 1,
+    },
+    chatHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: 8,
+      paddingVertical: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: "#1C1C1E",
+    },
   backButton: {
     width: 44,
     height: 44,
@@ -5989,4 +6013,7 @@ const styles = StyleSheet.create({
   typingDot3: {
     opacity: 0.8,
   },
-});
+  });
+};
+
+const styles = createStyles();

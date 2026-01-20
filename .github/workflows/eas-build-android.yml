@@ -1,8 +1,9 @@
 name: EAS Build (Android)
 
 on:
-  push:
-    branches: [ main ]
+  # Disabled automatic builds - run manually or configure EXPO_TOKEN secret first
+  # push:
+  #   branches: [ main ]
   workflow_dispatch:
 
 jobs:

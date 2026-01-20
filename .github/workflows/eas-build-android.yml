@@ -1,9 +1,8 @@
 name: EAS Build (Android)
 
 on:
-  # Disabled automatic builds - run manually or configure EXPO_TOKEN secret first
-  # push:
-  #   branches: [ main ]
+  push:
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
@@ -27,5 +26,5 @@ jobs:
       - name: Build Android (preview)
         run: eas build --platform android --profile preview --non-interactive
         env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN2 }}
         continue-on-error: true

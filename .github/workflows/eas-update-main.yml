@@ -27,5 +27,4 @@ jobs:
       - name: Publish update to main branch
         run: eas update --branch main --message "CI update - $(git rev-parse --short HEAD)" --non-interactive
         env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN2 }}

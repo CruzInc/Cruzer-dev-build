@@ -7,41 +7,26 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
-      "node": "20.18.0",
-      "npm": {
-        "npmVersion": "10.x.x"
-      }
+      "node": "20.18.0"
     },
     "preview": {
       "distribution": "internal",
-      "node": "20.18.0",
-      "npm": {
-        "npmVersion": "10.x.x"
-      }
+      "node": "20.18.0"
     },
     "preview-apk": {
       "distribution": "internal",
       "node": "20.18.0",
-      "npm": {
-        "npmVersion": "10.x.x"
-      },
       "android": {
         "buildType": "apk"
       }
     },
     "production": {
       "autoIncrement": true,
-      "node": "20.18.0",
-      "npm": {
-        "npmVersion": "10.x.x"
-      }
+      "node": "20.18.0"
     },
     "production-apk": {
       "autoIncrement": true,
       "node": "20.18.0",
-      "npm": {
-        "npmVersion": "10.x.x"
-      },
       "android": {
         "buildType": "apk"
       }

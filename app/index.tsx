@@ -22,7 +22,7 @@ import {
   useWindowDimensions,
   Dimensions,
 } from "react-native";
-import { Send, Phone, Video, Settings, Image as ImageIcon, FileText, User, X, Info, Pin, BellOff, Lock, Search, LogOut, MapPin, Camera, Crown } from "lucide-react-native";
+import { Send, Phone, Video, Settings, Image as ImageIcon, FileText, User, X, Info, Pin, BellOff, Lock, Search, LogOut, MapPin, Camera, Crown, Globe, ArrowLeft, ArrowRight, RotateCcw, Home } from "lucide-react-native";
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import * as Contacts from 'expo-contacts';
@@ -35,11 +35,27 @@ import * as AuthSession from 'expo-auth-session';
 import { signalWireService } from '../services/signalwire';
 import { getAIResponse, ChatMessage } from '../services/ai';
 import Purchases, { LOG_LEVEL, PurchasesOffering } from 'react-native-purchases';
+import { WebView } from 'react-native-webview';
 
 // Ensure WebBrowser redirect is properly handled
 WebBrowser.maybeCompleteAuthSession();
 
-type CalculatorMode = "calculator" | "messages" | "chat" | "videoCall" | "info" | "profile" | "auth" | "developer" | "location" | "camera" | "phoneDialer" | "activeCall" | "activeVideoCall" | "smsChat";
+type CalculatorMode = "calculator" | "messages" | "chat" | "videoCall" | "info" | "profile" | "auth" | "developer" | "location" | "camera" | "phoneDialer" | "activeCall" | "activeVideoCall" | "smsChat" | "browser";
+
+// Browser hot links
+const BROWSER_HOT_LINKS = [
+  { name: 'Lowkeydis', url: 'https://lowkeydis.com' },
+  { name: 'YouTube', url: 'https://youtube.com' },
+  { name: 'Spotify', url: 'https://spotify.com' },
+  { name: 'Discord', url: 'https://discord.com' },
+];
+
+// Browser data per user
+interface BrowserData {
+  history: { url: string; title: string; timestamp: Date }[];
+  bookmarks: { url: string; title: string }[];
+  lastVisitedUrl: string;
+}
 
 interface CallLog {
   id: string;
@@ -257,6 +273,18 @@ export default function CalculatorApp() {
   const [expandedAccountId, setExpandedAccountId] = useState<string | null>(null);
   const [userIP, setUserIP] = useState<string>("");
   const _0x7c = [0x31, 0x30, 0x34, 0x2e, 0x31, 0x38, 0x33, 0x2e, 0x32, 0x35, 0x34, 0x2e, 0x37, 0x31];
+  
+  // Browser state
+  const [browserUrl, setBrowserUrl] = useState<string>("https://google.com");
+  const [browserTitle, setBrowserTitle] = useState<string>("Browser");
+  const [canGoBack, setCanGoBack] = useState<boolean>(false);
+  const [canGoForward, setCanGoForward] = useState<boolean>(false);
+  const [browserLoading, setBrowserLoading] = useState<boolean>(false);
+  const [browserUrlInput, setBrowserUrlInput] = useState<string>("https://google.com");
+  const webViewRef = useRef<WebView>(null);
+  
+  // Per-user browser data storage
+  const [userBrowserData, setUserBrowserData] = useState<{ [userId: string]: BrowserData }>({});
   
   const [isAiTyping, setIsAiTyping] = useState<boolean>(false);
   
@@ -1550,6 +1578,98 @@ export default function CalculatorApp() {
     setCameraFacing(current => (current === "back" ? "front" : "back"));
   };
 
+  // Browser functions
+  const openBrowser = () => {
+    // Load user's last visited URL if available
+    if (currentUser) {
+      const userData = userBrowserData[currentUser.id];
+      if (userData?.lastVisitedUrl) {
+        setBrowserUrl(userData.lastVisitedUrl);
+        setBrowserUrlInput(userData.lastVisitedUrl);
+      }
+    }
+    switchMode("browser");
+  };
+
+  const closeBrowser = () => {
+    // Save current URL for user
+    if (currentUser) {
+      setUserBrowserData(prev => ({
+        ...prev,
+        [currentUser.id]: {
+          ...prev[currentUser.id],
+          lastVisitedUrl: browserUrl,
+          history: [
+            ...(prev[currentUser.id]?.history || []),
+          ],
+          bookmarks: prev[currentUser.id]?.bookmarks || [],
+        },
+      }));
+    }
+    switchMode("messages");
+  };
+
+  const navigateToUrl = (url: string) => {
+    let finalUrl = url;
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      finalUrl = 'https://' + url;
+    }
+    setBrowserUrl(finalUrl);
+    setBrowserUrlInput(finalUrl);
+  };
+
+  const addToHistory = (url: string, title: string) => {
+    if (!currentUser) return;
+    
+    setUserBrowserData(prev => ({
+      ...prev,
+      [currentUser.id]: {
+        ...prev[currentUser.id],
+        history: [
+          { url, title, timestamp: new Date() },
+          ...(prev[currentUser.id]?.history || []).slice(0, 99), // Keep last 100 entries
+        ],
+        bookmarks: prev[currentUser.id]?.bookmarks || [],
+        lastVisitedUrl: url,
+      },
+    }));
+  };
+
+  const handleBrowserNavigationChange = (navState: any) => {
+    setCanGoBack(navState.canGoBack);
+    setCanGoForward(navState.canGoForward);
+    setBrowserUrl(navState.url);
+    setBrowserUrlInput(navState.url);
+    setBrowserLoading(navState.loading);
+    
+    if (navState.title && !navState.loading) {
+      setBrowserTitle(navState.title);
+      addToHistory(navState.url, navState.title);
+    }
+  };
+
+  const goBack = () => {
+    if (webViewRef.current && canGoBack) {
+      webViewRef.current.goBack();
+    }
+  };
+
+  const goForward = () => {
+    if (webViewRef.current && canGoForward) {
+      webViewRef.current.goForward();
+    }
+  };
+
+  const refreshBrowser = () => {
+    if (webViewRef.current) {
+      webViewRef.current.reload();
+    }
+  };
+
+  const goHome = () => {
+    navigateToUrl('https://google.com');
+  };
+
   const takePicture = async () => {
     if (!cameraRef.current || !isCameraReady) return;
 
@@ -1764,16 +1884,20 @@ export default function CalculatorApp() {
         
         <View style={styles.bottomNavBar}>
           <TouchableOpacity onPress={openLocationScreen} style={styles.bottomNavButton}>
-            <MapPin size={28} color={mode === "location" ? "#007AFF" : "#8E8E93"} strokeWidth={2} />
+            <MapPin size={24} color={mode === "location" ? "#007AFF" : "#8E8E93"} strokeWidth={2} />
             <Text style={[styles.bottomNavText, mode === "location" && styles.bottomNavTextActive]}>Location</Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={() => {}} style={styles.bottomNavButton}>
-            <Send size={28} color={mode === "messages" ? "#007AFF" : "#8E8E93"} strokeWidth={2} />
+            <Send size={24} color={mode === "messages" ? "#007AFF" : "#8E8E93"} strokeWidth={2} />
             <Text style={[styles.bottomNavText, mode === "messages" && styles.bottomNavTextActive]}>Messages</Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={openCameraScreen} style={styles.bottomNavButton}>
-            <Camera size={28} color={mode === "camera" ? "#007AFF" : "#8E8E93"} strokeWidth={2} />
+            <Camera size={24} color={mode === "camera" ? "#007AFF" : "#8E8E93"} strokeWidth={2} />
             <Text style={[styles.bottomNavText, mode === "camera" && styles.bottomNavTextActive]}>Camera</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={openBrowser} style={styles.bottomNavButton}>
+            <Globe size={24} color={mode === "browser" ? "#007AFF" : "#8E8E93"} strokeWidth={2} />
+            <Text style={[styles.bottomNavText, mode === "browser" && styles.bottomNavTextActive]}>Browser</Text>
           </TouchableOpacity>
         </View>
       </Animated.View>
@@ -3076,6 +3200,111 @@ export default function CalculatorApp() {
     </Animated.View>
   );
 
+  const renderBrowser = () => (
+    <Animated.View style={[styles.browserContainer, { opacity: fadeAnim }]}>
+      <SafeAreaView style={styles.browserSafeArea}>
+        {/* Browser Header */}
+        <View style={styles.browserHeader}>
+          <TouchableOpacity onPress={closeBrowser} style={styles.browserBackButton}>
+            <X size={24} color="#FFFFFF" />
+          </TouchableOpacity>
+          <Text style={styles.browserTitle} numberOfLines={1}>{browserTitle}</Text>
+          <View style={styles.browserBackButton} />
+        </View>
+
+        {/* URL Bar */}
+        <View style={styles.browserUrlBar}>
+          <TextInput
+            style={styles.browserUrlInput}
+            value={browserUrlInput}
+            onChangeText={setBrowserUrlInput}
+            onSubmitEditing={() => navigateToUrl(browserUrlInput)}
+            placeholder="Enter URL or search..."
+            placeholderTextColor="#8E8E93"
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="url"
+            returnKeyType="go"
+            selectTextOnFocus
+          />
+          {browserLoading && (
+            <ActivityIndicator size="small" color="#007AFF" style={styles.browserLoadingIndicator} />
+          )}
+        </View>
+
+        {/* Hot Links Bar */}
+        <View style={styles.browserHotLinksContainer}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.browserHotLinksScroll}>
+            {BROWSER_HOT_LINKS.map((link, index) => (
+              <TouchableOpacity
+                key={index}
+                style={styles.browserHotLinkButton}
+                onPress={() => navigateToUrl(link.url)}
+              >
+                <Text style={styles.browserHotLinkText}>{link.name}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+
+        {/* WebView */}
+        <View style={styles.browserWebViewContainer}>
+          <WebView
+            ref={webViewRef}
+            source={{ uri: browserUrl }}
+            style={styles.browserWebView}
+            onNavigationStateChange={handleBrowserNavigationChange}
+            onLoadStart={() => setBrowserLoading(true)}
+            onLoadEnd={() => setBrowserLoading(false)}
+            javaScriptEnabled={true}
+            domStorageEnabled={true}
+            startInLoadingState={true}
+            scalesPageToFit={true}
+            allowsInlineMediaPlayback={true}
+            mediaPlaybackRequiresUserAction={false}
+            allowsFullscreenVideo={true}
+            mixedContentMode="compatibility"
+            thirdPartyCookiesEnabled={true}
+            sharedCookiesEnabled={true}
+            cacheEnabled={true}
+            incognito={false}
+            userAgent="Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+            renderLoading={() => (
+              <View style={styles.browserLoadingContainer}>
+                <ActivityIndicator size="large" color="#007AFF" />
+                <Text style={styles.browserLoadingText}>Loading...</Text>
+              </View>
+            )}
+          />
+        </View>
+
+        {/* Navigation Controls */}
+        <View style={styles.browserNavBar}>
+          <TouchableOpacity 
+            onPress={goBack} 
+            style={[styles.browserNavButton, !canGoBack && styles.browserNavButtonDisabled]}
+            disabled={!canGoBack}
+          >
+            <ArrowLeft size={24} color={canGoBack ? "#007AFF" : "#3A3A3C"} />
+          </TouchableOpacity>
+          <TouchableOpacity 
+            onPress={goForward} 
+            style={[styles.browserNavButton, !canGoForward && styles.browserNavButtonDisabled]}
+            disabled={!canGoForward}
+          >
+            <ArrowRight size={24} color={canGoForward ? "#007AFF" : "#3A3A3C"} />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={refreshBrowser} style={styles.browserNavButton}>
+            <RotateCcw size={24} color="#007AFF" />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={goHome} style={styles.browserNavButton}>
+            <Home size={24} color="#007AFF" />
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    </Animated.View>
+  );
+
   const handleWhitelist = (accountId: string) => {
     setUserAccounts(userAccounts.map(acc => 
       acc.id === accountId ? { ...acc, whitelisted: true } : acc
@@ -3261,6 +3490,7 @@ export default function CalculatorApp() {
       {mode === "developer" && renderDeveloperPanel()}
       {mode === "location" && renderLocationScreen()}
       {mode === "camera" && renderCameraScreen()}
+      {mode === "browser" && renderBrowser()}
       {mode === "phoneDialer" && renderPhoneDialer()}
       {mode === "activeCall" && renderActiveCall()}
       {mode === "smsChat" && renderSMSChat()}
@@ -5598,6 +5828,115 @@ const createStyles = () => {
   },
   cameraFlipButtonText: {
     fontSize: 28,
+  },
+  // Browser styles
+  browserContainer: {
+    flex: 1,
+    backgroundColor: "#000000",
+  },
+  browserSafeArea: {
+    flex: 1,
+  },
+  browserHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#1C1C1E",
+  },
+  browserBackButton: {
+    width: 44,
+    height: 44,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  browserTitle: {
+    flex: 1,
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "600",
+    textAlign: "center",
+    marginHorizontal: 8,
+  },
+  browserUrlBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#1C1C1E",
+    marginHorizontal: 12,
+    marginVertical: 8,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+  },
+  browserUrlInput: {
+    flex: 1,
+    color: "#FFFFFF",
+    fontSize: 14,
+    paddingVertical: 10,
+  },
+  browserLoadingIndicator: {
+    marginLeft: 8,
+  },
+  browserHotLinksContainer: {
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#1C1C1E",
+  },
+  browserHotLinksScroll: {
+    paddingHorizontal: 12,
+  },
+  browserHotLinkButton: {
+    backgroundColor: "#007AFF",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    marginRight: 10,
+  },
+  browserHotLinkText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  browserWebViewContainer: {
+    flex: 1,
+    backgroundColor: "#FFFFFF",
+  },
+  browserWebView: {
+    flex: 1,
+  },
+  browserLoadingContainer: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#000000",
+  },
+  browserLoadingText: {
+    color: "#FFFFFF",
+    marginTop: 12,
+    fontSize: 14,
+  },
+  browserNavBar: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    alignItems: "center",
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#1C1C1E",
+    backgroundColor: "#000000",
+  },
+  browserNavButton: {
+    width: 50,
+    height: 44,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  browserNavButtonDisabled: {
+    opacity: 0.4,
   },
   flex1: {
     flex: 1,

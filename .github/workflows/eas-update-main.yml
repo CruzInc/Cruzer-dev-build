@@ -1,8 +1,9 @@
 name: EAS Update (main branch)
 
 on:
-  push:
-    branches: [ main ]
+  # Disabled: Enable after first successful build
+  # push:
+  #   branches: [ main ]
   workflow_dispatch:
 
 jobs:

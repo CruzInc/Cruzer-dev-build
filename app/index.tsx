@@ -1858,10 +1858,15 @@ export default function CalculatorApp() {
       const _0xgc = `${_0xg1.map(c => String.fromCharCode(c)).join('')}-${_0xg2.map(c => String.fromCharCode(c)).join('')}.${_0xg3.map(c => String.fromCharCode(c)).join('')}`;
       const clientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || _0xgc;
       
+      // Use proper redirect URI for Expo
       const redirectUri = AuthSession.makeRedirectUri({
         scheme: 'cruzer-app',
-        path: 'auth/callback',
+        useProxy: false,
       });
+
+      console.log('=== Google Sign-In Debug ===');
+      console.log('Client ID:', clientId);
+      console.log('Redirect URI:', redirectUri);
 
       const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${new URLSearchParams({
         client_id: clientId,

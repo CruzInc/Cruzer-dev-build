@@ -6,9 +6,9 @@ import React, { useEffect, useState, useCallback, useRef } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { Platform, UIManager, View, Text, StyleSheet, LogBox, AppState } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import { analytics } from "./services/analytics";
-import { usageInsights } from "./services/usageInsights";
-import { AnalyticsEvents } from "./services/analyticsEvents";
+import { analytics } from "../services/analytics";
+import { usageInsights } from "../services/usageInsights";
+import { AnalyticsEvents } from "../services/analyticsEvents";
 
 // Suppress specific warnings that don't affect functionality
 LogBox.ignoreLogs([

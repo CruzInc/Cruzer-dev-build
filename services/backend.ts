@@ -350,7 +350,6 @@ class BackendService {
       const fetchOptions: RequestInit = {
         method,
         headers,
-        timeout: options?.timeout || 30000,
       };
 
       if (data && (method === 'POST' || method === 'PUT')) {

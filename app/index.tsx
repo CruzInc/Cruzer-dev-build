@@ -22,7 +22,7 @@ import {
   Dimensions,
   RefreshControl,
 } from "react-native";
-import { Send, Phone, Video, Settings, Image as ImageIcon, FileText, User, X, Info, Pin, BellOff, Lock, Search, LogOut, MapPin, Camera, Crown, Globe, Music, Play, Pause, SkipForward, AlertTriangle, Heart } from "lucide-react-native";
+import { Send, Phone, Video, Settings, Image as ImageIcon, FileText, User, X, Info, Pin, BellOff, Lock, Search, LogOut, MapPin, Camera, Crown, Globe, Music, Play, Pause, SkipForward, AlertTriangle, Heart, Mail } from "lucide-react-native";
 import { Swipeable } from 'react-native-gesture-handler';
 import { Accelerometer } from 'expo-sensors';
 import * as ImagePicker from 'expo-image-picker';
@@ -46,6 +46,7 @@ import { configureStealthNotifications, sendStealthNotification } from '../servi
 import { encryptMessage, decryptMessage, initSignalProtocol } from '../services/crypto';
 import { getDeviceCapabilities, getFeatureFlags, getFormattedDeviceInfo } from '../services/deviceCapabilities';
 import { updateLog, getDisabledFeaturesMessage } from '../services/updateLog';
+import { emailVerificationService } from '../services/emailVerification';
 
 // ==================== TYPE DECLARATIONS ====================
 
@@ -151,6 +152,7 @@ interface UserAccount {
   blacklisted?: boolean;
   ipAddress?: string;
   macAddress?: string;
+  emailVerified?: boolean;
 }
 
 interface LoginRequest {
@@ -308,6 +310,15 @@ export default function CalculatorApp() {
   const [authConfirmPassword, setAuthConfirmPassword] = useState<string>("");
   const [authPublicName, setAuthPublicName] = useState<string>("");
   const [authPrivateName, setAuthPrivateName] = useState<string>("");
+  
+  // Email verification state
+  const [showEmailVerification, setShowEmailVerification] = useState<boolean>(false);
+  const [emailVerificationCode, setEmailVerificationCode] = useState<string>("");
+  const [emailVerificationLoading, setEmailVerificationLoading] = useState<boolean>(false);
+  const [emailVerificationError, setEmailVerificationError] = useState<string>("");
+  const [emailVerificationExpires, setEmailVerificationExpires] = useState<number>(0);
+  const [pendingVerificationUserId, setPendingVerificationUserId] = useState<string>("");
+  
   const [lockPrompt, setLockPrompt] = useState<LockPromptState>({ visible: false, onSuccess: () => {} });
   const [lockCodeInput, setLockCodeInput] = useState<string>("");
   const [currentPasswordInput, setCurrentPasswordInput] = useState<string>("");
@@ -441,6 +452,30 @@ export default function CalculatorApp() {
     };
 
     initDeviceCapabilities();
+  }, []);
+
+  // Initialize audio mode to allow recording
+  useEffect(() => {
+    const initAudio = async () => {
+      try {
+        // Set audio mode to allow recording and playback
+        // allowsRecordingIOS: true ensures microphone works
+        // shouldDuckAndroid: true reduces other audio when recording
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: true,
+          playsInSilentModeIOS: true,
+          staysActiveInBackground: false,
+          shouldDuckAndroid: true,
+        });
+        console.log('Audio mode initialized - microphone enabled');
+      } catch (error) {
+        console.warn('Failed to initialize audio mode:', error);
+      }
+    };
+
+    if (Platform.OS !== 'web') {
+      initAudio();
+    }
   }, []);
 
   // Initialize stealth notifications and crypto
@@ -692,10 +727,12 @@ export default function CalculatorApp() {
     if (musicPlayerState.tracks.length === 0) return;
 
     try {
+      // Allow recording while playing music to keep microphone functional
       await Audio.setAudioModeAsync({
-        allowsRecordingIOS: false,
+        allowsRecordingIOS: true,
         playsInSilentModeIOS: true,
         staysActiveInBackground: true,
+        shouldDuckAndroid: true,
       });
 
       if (soundRef.current) {
@@ -1788,6 +1825,7 @@ export default function CalculatorApp() {
       return;
     }
 
+    // Create account but don't log in yet - need to verify email first
     const newAccount: UserAccount = {
       id: Date.now().toString(),
       email: authEmail,
@@ -1798,28 +1836,126 @@ export default function CalculatorApp() {
       lockCode: "",
       lastLogin: new Date(),
       phoneNumber: generatePhoneNumber(),
+      emailVerified: false,
     };
 
+    // Save the new account
     setUserAccounts([...userAccounts, newAccount]);
-    setCurrentUser(newAccount);
-    setAuthEmail("");
-    setAuthPassword("");
-    setAuthConfirmPassword("");
-    setAuthPublicName("");
-    setAuthPrivateName("");
+    setPendingVerificationUserId(newAccount.id);
     
-    // Report account creation
-    reportAccountEvent(newAccount.id, newAccount.email, 'signup');
-    reportPresence(newAccount.id, newAccount.email, newAccount.publicName, 'online');
+    // Send verification code
+    setEmailVerificationLoading(true);
+    setEmailVerificationError("");
+    const result = await emailVerificationService.sendVerificationCode(newAccount.id, authEmail);
     
-    // Show beta welcome for new signups
-    const hasSeenBeta = await AsyncStorage.getItem(SHOWN_BETA_KEY + ':' + newAccount.id);
-    if (!hasSeenBeta) {
-      setShowBetaWelcome(true);
-      await AsyncStorage.setItem(SHOWN_BETA_KEY + ':' + newAccount.id, 'true');
+    if (result.success) {
+      // Show verification screen
+      setEmailVerificationCode("");
+      if (result.expiresIn) {
+        setEmailVerificationExpires(result.expiresIn);
+      }
+      setShowEmailVerification(true);
+      
+      // Clear auth form
+      setAuthEmail("");
+      setAuthPassword("");
+      setAuthConfirmPassword("");
+      setAuthPublicName("");
+      setAuthPrivateName("");
+      
+      Alert.alert("Verification Code Sent", "A verification code has been sent to your email. Please enter it to complete your signup.");
+    } else {
+      setEmailVerificationError(result.error || "Failed to send verification code");
+      Alert.alert("Error", result.error || "Failed to send verification code");
+      // Remove the account since verification failed
+      setUserAccounts(userAccounts.filter(u => u.id !== newAccount.id));
+      setPendingVerificationUserId("");
     }
     
-    switchMode("profile");
+    setEmailVerificationLoading(false);
+  };
+
+  const handleVerifyEmail = async () => {
+    if (!emailVerificationCode) {
+      setEmailVerificationError("Please enter the verification code");
+      return;
+    }
+
+    if (!pendingVerificationUserId) {
+      setEmailVerificationError("Session expired. Please sign up again.");
+      return;
+    }
+
+    setEmailVerificationLoading(true);
+    setEmailVerificationError("");
+
+    const result = await emailVerificationService.verifyEmail(pendingVerificationUserId, emailVerificationCode);
+
+    if (result.success) {
+      // Update account as verified
+      const updatedAccounts = userAccounts.map(u =>
+        u.id === pendingVerificationUserId ? { ...u, emailVerified: true } : u
+      );
+      setUserAccounts(updatedAccounts);
+
+      // Log the user in
+      const verifiedAccount = updatedAccounts.find(u => u.id === pendingVerificationUserId);
+      if (verifiedAccount) {
+        setCurrentUser(verifiedAccount);
+
+        // Report account creation
+        reportAccountEvent(verifiedAccount.id, verifiedAccount.email, 'signup');
+        reportPresence(verifiedAccount.id, verifiedAccount.email, verifiedAccount.publicName, 'online');
+
+        // Show beta welcome for new signups
+        const hasSeenBeta = await AsyncStorage.getItem(SHOWN_BETA_KEY + ':' + verifiedAccount.id);
+        if (!hasSeenBeta) {
+          setShowBetaWelcome(true);
+          await AsyncStorage.setItem(SHOWN_BETA_KEY + ':' + verifiedAccount.id, 'true');
+        }
+
+        // Close verification modal and go to profile
+        setShowEmailVerification(false);
+        setEmailVerificationCode("");
+        setPendingVerificationUserId("");
+        switchMode("profile");
+
+        Alert.alert("Success", "Your email has been verified! Welcome to Cruzer.");
+      }
+    } else {
+      setEmailVerificationError(result.error || "Invalid verification code");
+    }
+
+    setEmailVerificationLoading(false);
+  };
+
+  const handleResendVerificationCode = async () => {
+    if (!pendingVerificationUserId) {
+      setEmailVerificationError("Session expired. Please sign up again.");
+      return;
+    }
+
+    const account = userAccounts.find(u => u.id === pendingVerificationUserId);
+    if (!account) {
+      setEmailVerificationError("Account not found.");
+      return;
+    }
+
+    setEmailVerificationLoading(true);
+    setEmailVerificationError("");
+
+    const result = await emailVerificationService.resendVerificationCode(pendingVerificationUserId, account.email);
+
+    if (result.success) {
+      if (result.expiresIn) {
+        setEmailVerificationExpires(result.expiresIn);
+      }
+      Alert.alert("Code Resent", "A new verification code has been sent to your email.");
+    } else {
+      setEmailVerificationError(result.error || "Failed to resend code");
+    }
+
+    setEmailVerificationLoading(false);
   };
 
   const handleSignIn = () => {
@@ -1861,7 +1997,6 @@ export default function CalculatorApp() {
       // Use proper redirect URI for Expo
       const redirectUri = AuthSession.makeRedirectUri({
         scheme: 'cruzer-app',
-        useProxy: false,
       });
 
       console.log('=== Google Sign-In Debug ===');
@@ -3071,68 +3206,8 @@ export default function CalculatorApp() {
   };
 
   const renderBrowserScreen = () => {
-    const hotLinks: { label: string; url: string }[] = [
-      { label: 'Lowkeydis', url: 'https://lowkeydis.com' },
-      { label: 'YouTube', url: 'https://youtube.com' },
-      { label: 'Spotify', url: 'https://spotify.com' },
-      { label: 'Discord', url: 'https://discord.com' },
-    ];
-
-    const openUrl = (text: string) => {
-      const trimmed = text.trim();
-      if (!trimmed) return;
-      const normalized = /^(https?:)?\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
-      setBrowserUrl(normalized);
-      // Persist per-user last url
-      if (currentUser) AsyncStorage.setItem(`browser:lastUrl:${currentUser.id}`, normalized).catch(() => {});
-    };
-
     return (
       <View style={styles.browserContainer}>
-        <View style={styles.browserHeader}>
-          <View style={styles.browserControls}>
-            <TouchableOpacity
-              onPress={() => webviewRef.current?.goBack()}
-              disabled={!canGoBack}
-              style={[styles.navControl, !canGoBack && styles.navControlDisabled]}
-            >
-              <Text style={styles.navControlText}>{'<'} Back</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => webviewRef.current?.goForward()}
-              disabled={!canGoForward}
-              style={[styles.navControl, !canGoForward && styles.navControlDisabled]}
-            >
-              <Text style={styles.navControlText}>Forward {'>'}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => webviewRef.current?.reload()} style={styles.navControl}>
-              <Text style={styles.navControlText}>Reload</Text>
-            </TouchableOpacity>
-          </View>
-          <View style={styles.addressBarRow}>
-            <TextInput
-              value={browserUrl}
-              onChangeText={setBrowserUrl}
-              onSubmitEditing={() => openUrl(browserUrl)}
-              placeholder="Enter URL"
-              placeholderTextColor="#8E8E93"
-              autoCapitalize="none"
-              autoCorrect={false}
-              keyboardType="url"
-              style={styles.addressBar}
-            />
-            <TouchableOpacity onPress={() => openUrl(browserUrl)} style={styles.goButton}>
-              <Text style={styles.goButtonText}>Go</Text>
-            </TouchableOpacity>
-          </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.hotLinksRow}>
-            {hotLinks.map(link => (
-              <TouchableOpacity key={link.url} style={styles.hotLink} onPress={() => openUrl(link.url)}>
-                <Text style={styles.hotLinkText}>{link.label}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
         <WebView
           ref={(r) => { webviewRef.current = r; }}
           source={{ uri: browserUrl }}
@@ -4917,8 +4992,8 @@ export default function CalculatorApp() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" />
+    <SafeAreaView style={[styles.container, mode === "browser" && styles.fullscreenContainer]}>
+      <StatusBar barStyle="light-content" hidden={mode === "browser"} />
       {mode === "calculator" && renderCalculator()}
       {mode === "messages" && renderMessages()}
       {mode === "chat" && renderChat()}
@@ -5535,6 +5610,73 @@ export default function CalculatorApp() {
           </TouchableOpacity>
         </KeyboardAvoidingView>
       </Modal>
+
+      {/* Email Verification Modal */}
+      <Modal
+        visible={showEmailVerification}
+        transparent
+        animationType="slide"
+        onRequestClose={() => {
+          if (!emailVerificationLoading) {
+            setShowEmailVerification(false);
+          }
+        }}
+      >
+        <View style={styles.betaModalOverlay}>
+          <View style={styles.emailVerificationModalContent}>
+            <View style={styles.emailVerificationIcon}>
+              <Mail size={48} color="#007AFF" />
+            </View>
+            <Text style={styles.betaModalTitle}>Verify Your Email</Text>
+            <Text style={styles.betaModalText}>
+              A verification code has been sent to your email address. Please enter it below to complete your signup.
+            </Text>
+
+            <TextInput
+              style={styles.emailVerificationInput}
+              placeholder="Enter 6-digit code"
+              placeholderTextColor="#8E8E93"
+              value={emailVerificationCode}
+              onChangeText={setEmailVerificationCode}
+              keyboardType="number-pad"
+              maxLength={6}
+              editable={!emailVerificationLoading}
+              selectTextOnFocus
+            />
+
+            {emailVerificationError ? (
+              <Text style={styles.emailVerificationError}>{emailVerificationError}</Text>
+            ) : null}
+
+            {emailVerificationExpires > 0 && (
+              <Text style={styles.emailVerificationExpires}>
+                Code expires in {Math.ceil(emailVerificationExpires / 60)} minutes
+              </Text>
+            )}
+
+            <TouchableOpacity
+              style={[styles.betaModalButton, emailVerificationLoading && styles.buttonDisabled]}
+              onPress={handleVerifyEmail}
+              disabled={emailVerificationLoading}
+            >
+              {emailVerificationLoading ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <Text style={styles.betaModalButtonText}>Verify Email</Text>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.emailVerificationResendButton}
+              onPress={handleResendVerificationCode}
+              disabled={emailVerificationLoading}
+            >
+              <Text style={styles.emailVerificationResendText}>Resend Code</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
     </SafeAreaView>
   );
 }
@@ -5575,6 +5717,12 @@ const createStyles = () => {
     container: {
       flex: 1,
       backgroundColor: "#000000",
+    },
+    fullscreenContainer: {
+      marginTop: 0,
+      marginBottom: 0,
+      paddingTop: 0,
+      paddingBottom: 0,
     },
     calculatorContainer: {
       flex: 1,
@@ -7389,6 +7537,7 @@ const createStyles = () => {
     backgroundColor: "#000000",
   },
   browserHeader: {
+    display: "none",
     paddingHorizontal: 12,
     paddingTop: 8,
     paddingBottom: 6,
@@ -8516,6 +8665,54 @@ const createStyles = () => {
     fontSize: 16,
     fontWeight: "600",
     textAlign: "center",
+  },
+  // Email Verification Modal styles
+  emailVerificationModalContent: {
+    backgroundColor: "#1C1C1E",
+    borderRadius: 16,
+    padding: 24,
+    alignItems: "center",
+    marginHorizontal: 24,
+  },
+  emailVerificationIcon: {
+    marginBottom: 16,
+  },
+  emailVerificationInput: {
+    width: "100%",
+    borderWidth: 1,
+    borderColor: "#3A3A3C",
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    color: "#FFFFFF",
+    fontSize: 18,
+    textAlign: "center",
+    letterSpacing: 6,
+    backgroundColor: "#0C0C0E",
+    marginVertical: 16,
+  },
+  emailVerificationError: {
+    color: "#FF3B30",
+    fontSize: 14,
+    marginVertical: 8,
+    textAlign: "center",
+  },
+  emailVerificationExpires: {
+    color: "#8E8E93",
+    fontSize: 12,
+    marginBottom: 16,
+  },
+  emailVerificationResendButton: {
+    marginTop: 12,
+    paddingVertical: 10,
+  },
+  emailVerificationResendText: {
+    color: "#007AFF",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  buttonDisabled: {
+    opacity: 0.6,
   },
   // Developer Panel Device Info Button
   devPanelDeviceButton: {

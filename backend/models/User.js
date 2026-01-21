@@ -14,6 +14,12 @@ const UserSchema = new mongoose.Schema({
   },
   displayName: String,
   photoURL: String,
+  emailVerified: {
+    type: Boolean,
+    default: false
+  },
+  emailVerificationCode: String,
+  emailVerificationCodeExpires: Date,
   createdAt: {
     type: Date,
     default: Date.now

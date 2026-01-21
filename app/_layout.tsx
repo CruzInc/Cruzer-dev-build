@@ -2,10 +2,13 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
-import { Platform, UIManager, View, Text, StyleSheet, LogBox } from "react-native";
+import { Platform, UIManager, View, Text, StyleSheet, LogBox, AppState } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { analytics } from "./services/analytics";
+import { usageInsights } from "./services/usageInsights";
+import { AnalyticsEvents } from "./services/analyticsEvents";
 
 // Suppress specific warnings that don't affect functionality
 LogBox.ignoreLogs([
@@ -113,10 +116,20 @@ function RootLayoutNav() {
 
 export default function RootLayout() {
   const [appIsReady, setAppIsReady] = useState(false);
+  const appStateRef = useRef(useRef(AppState.currentState).current);
 
   useEffect(() => {
     async function prepare() {
       try {
+        // Initialize analytics
+        await analytics.initialize();
+        await analytics.logEvent(AnalyticsEvents.APP_LAUNCH);
+
+        // Record app open event for insights
+        await usageInsights.recordEvent(AnalyticsEvents.APP_LAUNCH, 0, {
+          app_launch_time: new Date().toISOString(),
+        });
+
         // Pre-load any resources or perform initialization here
         // Add a small delay for Android to properly initialize
         if (Platform.OS === 'android') {
@@ -124,6 +137,7 @@ export default function RootLayout() {
         }
       } catch (e) {
         console.warn('Error during app preparation:', e);
+        await analytics.logError('AppPrepareError', e instanceof Error ? e : new Error(String(e)));
       } finally {
         setAppIsReady(true);
       }
@@ -131,6 +145,28 @@ export default function RootLayout() {
 
     prepare();
   }, []);
+
+  // Track app state changes
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    return () => subscription.remove();
+  }, []);
+
+  const handleAppStateChange = (nextAppState: string) => {
+    if (appStateRef.current.match(/inactive|background/) && nextAppState === 'active') {
+      // App has come to foreground
+      analytics.logEvent(AnalyticsEvents.APP_FOREGROUND);
+      usageInsights.recordEvent(AnalyticsEvents.APP_FOREGROUND);
+    } else if (nextAppState.match(/inactive|background/)) {
+      // App has gone to background
+      analytics.logEvent(AnalyticsEvents.APP_BACKGROUND);
+      usageInsights.recordEvent(AnalyticsEvents.APP_BACKGROUND);
+      // Flush analytics data when going to background
+      usageInsights.flushBuffer();
+    }
+
+    appStateRef.current = nextAppState;
+  };
 
   const onLayoutRootView = useCallback(async () => {
     if (appIsReady) {

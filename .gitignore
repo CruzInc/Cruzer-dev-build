@@ -39,3 +39,8 @@ yarn-error.*
 .vercel
 
 .env
+# Environment files with secrets
+.env.production
+backend/.env.production
+*.env.local
+*.env.*.local

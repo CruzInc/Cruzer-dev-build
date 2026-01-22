@@ -50,7 +50,8 @@ import { updateLog, getDisabledFeaturesMessage } from '../services/updateLog';
 import { emailVerificationService } from '../services/emailVerification';
 import { debugMonitor } from '../services/debugMonitor';
 import { ownerPanel } from '../services/ownerPanel';
-import autoMaintenance from '../services/autoMaintenance';
+// Note: autoMaintenance is a dev-only tool and should not run in the mobile app.
+// It uses Node APIs that are unavailable in React Native. Removed from app bundle.
 import colors from '../constants/colors';
 import { FriendsAddScreen } from '../components/FriendsAddScreen';
 import { backend } from '../services/backend';
@@ -510,11 +511,7 @@ export default function CalculatorApp() {
       checkForUpdates();
     
     
-    // Start auto maintenance service
-    autoMaintenance.start(30, 24).catch(err => {
-      console.error('[Auto Maintenance] Failed to start:', err);
-    });
-    console.log('[Auto Maintenance] Started automatic error checking and file cleanup');
+    // Auto maintenance is dev-only (Node APIs). Do not start in mobile app.
     
     // Generate greeting message based on time
     const getGreeting = () => {
@@ -533,7 +530,6 @@ export default function CalculatorApp() {
     
     return () => {
       clearInterval(greetingInterval);
-      autoMaintenance.stop();
     };
   }, [currentUser]);
   // Check for OTA updates

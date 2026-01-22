@@ -118,23 +118,104 @@ EXPO_PUBLIC_GOOGLE_CLIENT_ID=YOUR-CLIENT-ID-HERE.apps.googleusercontent.com
 
 ## Troubleshooting
 
+### "Contact the Developer" / "App Not Authorized" Error
+
+**This is the most common issue!** It happens when:
+
+1. **OAuth Consent Screen is in Testing Mode**
+   - Go to [Google Cloud Console](https://console.cloud.google.com) → APIs & Services → OAuth consent screen
+   - Click "PUBLISH APP" button to make it available to all users
+   - OR add test users in the "Test users" section if keeping in testing mode
+
+2. **Redirect URI Mismatch**
+   - The redirect URI must be added to Google Cloud Console
+   - Get your exact redirect URI by checking the app logs when signing in
+   - Go to APIs & Services → Credentials → Your OAuth 2.0 Client ID
+   - Add these authorized redirect URIs:
+     ```
+     cruzer-app://redirect
+     cruzer-app:/
+     exp://localhost:8081
+     https://auth.expo.io/@your-expo-username/cruzer-dev
+     ```
+   - Save and wait 5 minutes for changes to propagate
+
+3. **Client ID Not Set or Invalid**
+   - Make sure you have a `.env` file (copy from `env.example`)
+   - Set `EXPO_PUBLIC_GOOGLE_CLIENT_ID` to your Web Client ID
+   - The Client ID should end with `.apps.googleusercontent.com`
+   - Restart your app after changing `.env`
+
 ### "Failed to sign in with Google"
 - Check your internet connection
-- Verify Client ID is correctly configured
-- Ensure OAuth consent screen is published (not in testing mode with no test users)
+- Verify Client ID is correctly configured in `.env`
+- Clear the app cache and try again
+- Make sure you're using the **Web Client ID**, not iOS/Android Client ID
 
-### Redirect issues
+### "Access Denied" Error
+- User cancelled or denied permissions
+- Make sure to grant all requested permissions (email, profile)
+
+### "Invalid Client" Error
+- Your Client ID is incorrect or doesn't exist
+- Double-check the Client ID in Google Cloud Console
+- Make sure you copied the entire ID including the `.apps.googleusercontent.com` part
+
+### OAuth Consent Screen Issues
+- **Testing mode**: Only allows test users you've added
+- **In production**: Must verify your app (can take weeks)
+- **Solution**: Either publish the app OR add yourself as a test user
+
+### Redirect Issues
 - Verify `scheme: 'cruzer-app'` matches in both `app.json` and OAuth config
+- The redirect URI should include the `/redirect` path
 - Check redirect URIs are added in Google Cloud Console
+- Case sensitivity matters! Use exact matches
 
 ### iOS Specific
-- Make sure iOS Client ID is used (different from Android/Web)
+- If using platform-specific client: Make sure iOS Client ID is used (different from Android/Web)
 - Bundle ID must match exactly: `app.work.cruzer`
+- For testing, you can use the Web Client ID on iOS
 
 ### Android Specific
-- Ensure SHA-1 fingerprint is correct
+- Ensure SHA-1 fingerprint is correct in Google Console
 - Package name must match: `app.cruzer.mobile`
 - Use the correct keystore (debug vs release)
+  ```bash
+  # Get debug SHA-1
+  keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android -keypass android
+  ```
+
+### Still Not Working?
+
+1. **Check Console Logs**
+   - Look for "Google Sign-In Debug" messages
+   - Note the Client ID and Redirect URI being used
+   - Check for any OAuth error messages
+
+2. **Verify Google Cloud Setup**
+   - OAuth consent screen is configured
+   - Required scopes are added (openid, email, profile)
+   - Correct application type (Web application for Expo)
+   - Authorized redirect URIs include your app's scheme
+
+3. **Test with Development Client ID**
+   - The app has a fallback Client ID for testing
+   - If it works with fallback but not yours, your config is wrong
+
+4. **Common Fixes**
+   ```bash
+   # Clear Expo cache
+   npx expo start -c
+   
+   # Reinstall dependencies
+   npm install
+   
+   # Reset Google OAuth (remove stored credentials)
+   # On iOS: Settings → Safari → Clear History and Website Data
+   # On Android: Settings → Apps → Chrome → Clear Data
+   ```
+
 
 ## Production Checklist
 

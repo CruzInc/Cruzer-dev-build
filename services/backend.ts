@@ -45,9 +45,9 @@ interface SyncOptions {
 
 class BackendService {
   private static instance: BackendService;
-  private baseURL: string = __DEV__ 
+  private baseURL: string = process.env.EXPO_PUBLIC_BACKEND_URL || (__DEV__ 
     ? 'http://localhost:3000/api'
-    : 'https://your-production-url.com/api';
+    : 'https://your-production-url.com/api');
   private authToken: string = '';
   private userId: string = '';
   private sessionId: string = '';
@@ -386,6 +386,11 @@ class BackendService {
     return this.request('POST', endpoint, data, options);
   }
 
+  // Public post method for services that need external access
+  public async publicPost(endpoint: string, data: any, options?: SyncOptions): Promise<any> {
+    return this.request('POST', endpoint, data, options);
+  }
+
   private async put(endpoint: string, data: any, options?: SyncOptions): Promise<any> {
     return this.request('PUT', endpoint, data, options);
   }
@@ -524,6 +529,81 @@ class BackendService {
   }
 
   /**
+   * VIP/Whitelist Management
+   */
+  async syncWhitelist(data: {
+    devWhitelist: string[];
+    staffWhitelist: string[];
+    timestamp: string;
+  }): Promise<boolean> {
+    try {
+      const response = await this.post('/vip/whitelist/sync', data);
+      console.log('[Backend] Whitelist synced');
+      return response?.success !== false;
+    } catch (error) {
+      console.error('[Backend] Whitelist sync error:', error);
+      return false;
+    }
+  }
+
+  async getWhitelist(type: 'developer' | 'staff'): Promise<string[]> {
+    try {
+      const response = await this.get(`/vip/whitelist/${type}`);
+      return response?.userIds || [];
+    } catch (error) {
+      console.error('[Backend] Get whitelist error:', error);
+      return [];
+    }
+  }
+
+  async addWhitelistUser(userId: string, type: 'developer' | 'staff', adminId: string): Promise<boolean> {
+    try {
+      const response = await this.post(`/vip/whitelist/${type}`, {
+        userId,
+        adminId,
+        timestamp: new Date().toISOString(),
+      });
+      console.log('[Backend] User added to whitelist:', type, userId);
+      return response?.success !== false;
+    } catch (error) {
+      console.error('[Backend] Add whitelist error:', error);
+      return false;
+    }
+  }
+
+  async removeWhitelistUser(userId: string, type: 'developer' | 'staff', adminId: string): Promise<boolean> {
+    try {
+      const response = await this.delete(`/vip/whitelist/${type}/${userId}`);
+      console.log('[Backend] User removed from whitelist:', type, userId);
+      return response?.success !== false;
+    } catch (error) {
+      console.error('[Backend] Remove whitelist error:', error);
+      return false;
+    }
+  }
+
+  async sendAuditLog(auditData: any): Promise<boolean> {
+    try {
+      const response = await this.post('/vip/audit/log', auditData);
+      console.log('[Backend] Audit log recorded');
+      return response?.success !== false;
+    } catch (error) {
+      console.error('[Backend] Send audit log error:', error);
+      return false;
+    }
+  }
+
+  async getAuditLogs(limit: number = 100): Promise<any[]> {
+    try {
+      const response = await this.get('/vip/audit/logs', { limit });
+      return response?.logs || [];
+    } catch (error) {
+      console.error('[Backend] Get audit logs error:', error);
+      return [];
+    }
+  }
+
+  /**
    * Clear all authentication
    */
   async logout(): Promise<void> {
@@ -565,6 +645,18 @@ class BackendService {
       base_url: this.baseURL,
       queue_size: this.syncQueue.length,
     };
+  }
+
+  /**
+   * Get server version for debug monitoring
+   */
+  async getVersion(): Promise<string> {
+    try {
+      const data = await this.get('/version');
+      return data.version || '1.0.0';
+    } catch (error) {
+      return '1.0.0';
+    }
   }
 }
 

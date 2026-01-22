@@ -14,20 +14,32 @@ class EmailVerificationService {
    */
   async sendVerificationCode(userId: string, email: string): Promise<VerificationResponse> {
     try {
-      const url = `${process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3000/api'}/users/${userId}/send-verification`;
+      const baseUrl = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3000/api';
+      const url = `${baseUrl}/users/${userId}/send-verification`;
+      
+      console.log('[EmailVerification] Sending code to:', url);
+      
       const response = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ email }),
-      }).then(res => res.json());
+      });
 
-      console.log('[EmailVerification] Code sent:', response);
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[EmailVerification] Server error:', response.status, errorText);
+        throw new Error(`Server error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      console.log('[EmailVerification] Code sent:', data);
       return {
-        success: response.success,
-        message: response.message,
-        expiresIn: response.expiresIn,
+        success: data.success,
+        message: data.message,
+        expiresIn: data.expiresIn,
       };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
@@ -44,19 +56,31 @@ class EmailVerificationService {
    */
   async verifyEmail(userId: string, verificationCode: string): Promise<VerificationResponse> {
     try {
-      const url = `${process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3000/api'}/users/${userId}/verify-email`;
+      const baseUrl = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3000/api';
+      const url = `${baseUrl}/users/${userId}/verify-email`;
+      
+      console.log('[EmailVerification] Verifying code at:', url);
+      
       const response = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ verificationCode }),
-      }).then(res => res.json());
+      });
 
-      console.log('[EmailVerification] Email verified:', response);
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[EmailVerification] Server error:', response.status, errorText);
+        throw new Error(`Server error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      console.log('[EmailVerification] Email verified:', data);
       return {
-        success: response.success,
-        message: response.message,
+        success: data.success,
+        message: data.message,
       };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);

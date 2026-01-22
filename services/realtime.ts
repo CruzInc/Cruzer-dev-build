@@ -252,6 +252,23 @@ export const getPresence = () => ({ ...localPresence });
 export const getAccountEvents = () => [...localAccountEvents];
 export const clearCrashLogs = () => { localCrashLogs = []; };
 
+// Broadcast event to all connected clients (server reset, etc.)
+export const broadcast = (broadcastEvent: {
+  type: string;
+  payload: Record<string, any>;
+}) => {
+  const event = {
+    type: 'broadcast',
+    payload: {
+      ...broadcastEvent,
+      broadcastAt: new Date().toISOString(),
+    },
+  };
+
+  sendEvent(event as any);
+  console.log('[Realtime] Broadcast event sent:', broadcastEvent.type);
+};
+
 export const realtimeService = {
   connect,
   disconnect,
@@ -260,6 +277,7 @@ export const realtimeService = {
   reportCrash,
   reportPresence,
   reportAccountEvent,
+  broadcast,
   getCrashLogs,
   getPresence,
   getAccountEvents,

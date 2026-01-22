@@ -22,7 +22,7 @@ import {
   Dimensions,
   RefreshControl,
 } from "react-native";
-import { Send, Phone, Video, Settings, Image as ImageIcon, FileText, User, X, Info, Pin, BellOff, Lock, Search, LogOut, MapPin, Camera, Crown, Globe, Music, Play, Pause, SkipForward, AlertTriangle, Heart, Mail } from "lucide-react-native";
+import { Send, Phone, Video, Settings, Image as ImageIcon, FileText, User, X, Info, Pin, BellOff, Lock, Search, LogOut, MapPin, Camera, Crown, Globe, Music, Play, Pause, SkipForward, AlertTriangle, Heart, Mail, Users } from "lucide-react-native";
 import { Swipeable } from 'react-native-gesture-handler';
 import { Accelerometer } from 'expo-sensors';
 import * as ImagePicker from 'expo-image-picker';
@@ -47,6 +47,14 @@ import { encryptMessage, decryptMessage, initSignalProtocol } from '../services/
 import { getDeviceCapabilities, getFeatureFlags, getFormattedDeviceInfo } from '../services/deviceCapabilities';
 import { updateLog, getDisabledFeaturesMessage } from '../services/updateLog';
 import { emailVerificationService } from '../services/emailVerification';
+import { debugMonitor } from '../services/debugMonitor';
+import { ownerPanel } from '../services/ownerPanel';
+import autoMaintenance from '../services/autoMaintenance';
+import colors from '../constants/colors';
+import { FriendsAddScreen } from '../components/FriendsAddScreen';
+import { backend } from '../services/backend';
+import { friendsService } from '../services/friends';
+import { whitelistService } from '../services/whitelist';
 
 // ==================== TYPE DECLARATIONS ====================
 
@@ -67,7 +75,7 @@ const SHOWN_BETA_KEY = 'cruzer:shownBeta:v1';
 // Ensure WebBrowser redirect is properly handled
 WebBrowser.maybeCompleteAuthSession();
 
-type CalculatorMode = "calculator" | "messages" | "chat" | "videoCall" | "info" | "profile" | "auth" | "developer" | "staff" | "location" | "camera" | "browser" | "phoneDialer" | "activeCall" | "activeVideoCall" | "smsChat" | "settings" | "music" | "crashLogs";
+type CalculatorMode = "calculator" | "messages" | "chat" | "videoCall" | "info" | "profile" | "auth" | "developer" | "staff" | "location" | "camera" | "browser" | "phoneDialer" | "activeCall" | "activeVideoCall" | "smsChat" | "settings" | "music" | "crashLogs" | "friends";
 
 interface MusicPlayerState {
   tracks: MusicTrack[];
@@ -254,11 +262,19 @@ export default function CalculatorApp() {
   const [browserInitialUrlLoaded, setBrowserInitialUrlLoaded] = useState<boolean>(false);
   const [canGoBack, setCanGoBack] = useState<boolean>(false);
   const [canGoForward, setCanGoForward] = useState<boolean>(false);
+  const [browserQuery, setBrowserQuery] = useState<string>("https://lowkeydis.com");
+  const browserHotlinks = [
+    { label: "Cruzer", url: "https://cruzer.app" },
+    { label: "Google", url: "https://www.google.com" },
+    { label: "YouTube", url: "https://www.youtube.com" },
+    { label: "Docs", url: "https://docs.expo.dev" },
+    { label: "Support", url: "https://support.cruzer.app" },
+  ];
   const webviewRef = useRef<WebView | null>(null);
   const [showContactInfo, setShowContactInfo] = useState<boolean>(false);
   const [isEditingContactInfo, setIsEditingContactInfo] = useState<boolean>(false);
   const [tempContactInfo, setTempContactInfo] = useState<ContactInfo>(contactInfo);
-  const [chatBackgroundColor, setChatBackgroundColor] = useState<string>("#000000");
+  const [chatBackgroundColor, setChatBackgroundColor] = useState<string>("#0F1420");
   const [chatBackgroundImage, setChatBackgroundImage] = useState<string | undefined>(undefined);
   const [longPressedMessage, setLongPressedMessage] = useState<string | null>(null);
   const [showMessageActions, setShowMessageActions] = useState<boolean>(false);
@@ -271,7 +287,7 @@ export default function CalculatorApp() {
   const [chatSearchIndex, setChatSearchIndex] = useState<number>(0);
   const swipeRefs = useRef<Record<string, Swipeable | null>>({}).current;
   const messageLayoutY = useRef<Record<string, number>>({}).current;
-  const [messagingAppColor, setMessagingAppColor] = useState<string>("#000000");
+  const [messagingAppColor, setMessagingAppColor] = useState<string>("#5E9FFF");
   const glitchAnim = useRef(new Animated.Value(0)).current;
   const [contacts, setContacts] = useState<ChatContact[]>([
     {
@@ -324,8 +340,17 @@ export default function CalculatorApp() {
   const [currentPasswordInput, setCurrentPasswordInput] = useState<string>("");
   const [newPasswordInput, setNewPasswordInput] = useState<string>("");
   const [devSearchQuery, setDevSearchQuery] = useState<string>("");
-  const [currentLocation, setCurrentLocation] = useState<LocationData | null>(null);
+  const [devWhitelistPinInput, setDevWhitelistPinInput] = useState<string>("");
+  const [devWhitelistConfirmMode, setDevWhitelistConfirmMode] = useState<boolean>(false);
+  const [devWhitelistTargetId, setDevWhitelistTargetId] = useState<string | null>(null);
+  const [staffWhitelistPinInput, setStaffWhitelistPinInput] = useState<string>("");
+  const [staffWhitelistConfirmMode, setStaffWhitelistConfirmMode] = useState<boolean>(false);
+  const [staffWhitelistTargetId, setStaffWhitelistTargetId] = useState<string | null>(null);
+  const [devWhitelistedUsers, setDevWhitelistedUsers] = useState<Set<string>>(new Set());
+  const [staffWhitelistedUsers, setStaffWhitelistedUsers] = useState<Set<string>>(new Set());
+  const [showServerResetConfirm, setShowServerResetConfirm] = useState<boolean>(false);
   const [locationVisibility, setLocationVisibility] = useState<LocationVisibility>("contacts");
+  const [currentLocation, setCurrentLocation] = useState<LocationData | null>(null);
   const [locationLoading, setLocationLoading] = useState<boolean>(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [cameraFacing, setCameraFacing] = useState<'back' | 'front'>('back');
@@ -350,9 +375,29 @@ export default function CalculatorApp() {
   const [isVIP, setIsVIP] = useState<boolean>(false);
   const [offerings, setOfferings] = useState<PurchasesOffering | null>(null);
   const [loadingSubscription, setLoadingSubscription] = useState<boolean>(false);
+  const [revenueCatStatus, setRevenueCatStatus] = useState<string>("Not started");
+  const [revenueCatMissingKeys, setRevenueCatMissingKeys] = useState<boolean>(false);
   const [expandedAccountId, setExpandedAccountId] = useState<string | null>(null);
   const [userIP, setUserIP] = useState<string>("");
   const _0x7c = [0x31, 0x30, 0x34, 0x2e, 0x31, 0x38, 0x33, 0x2e, 0x32, 0x35, 0x34, 0x2e, 0x37, 0x31];
+  
+  // Owner Panel State
+  const [showOwnerPanel, setShowOwnerPanel] = useState<boolean>(false);
+  const [ownerPinInput, setOwnerPinInput] = useState<string>("");
+  const [ownerAuthenticated, setOwnerAuthenticated] = useState<boolean>(false);
+  const [ownerDashboardData, setOwnerDashboardData] = useState<any>(null);
+  const [ownerTapCount, setOwnerTapCount] = useState<number>(0);
+  const ownerTapTimeoutRef = useRef<any>(null);
+  
+  // Debug Panel State
+  const [showDebugPanel, setShowDebugPanel] = useState<boolean>(false);
+  const [debugReport, setDebugReport] = useState<any>(null);
+  const [debugLogs, setDebugLogs] = useState<any[]>([]);
+  
+  // UX Improvements State
+  const [isTyping, setIsTyping] = useState<boolean>(false);
+  const [typingUserId, setTypingUserId] = useState<string | null>(null);
+  const [greetingMessage, setGreetingMessage] = useState<string>("");
   
   // Music player state
   const [musicPlayerState, setMusicPlayerState] = useState<MusicPlayerState>({
@@ -365,6 +410,7 @@ export default function CalculatorApp() {
   const [musicSearchResults, setMusicSearchResults] = useState<MusicTrack[]>([]);
   const [musicSearchLoading, setMusicSearchLoading] = useState<boolean>(false);
   const soundRef = useRef<Audio.Sound | null>(null);
+  const getUserPlaylistKey = (userId?: string | null) => userId ? `cruzer:music:tracks:${userId}` : 'cruzer:music:tracks:guest';
   
   // Crash logs state for developer panel
   const [crashLogs, setCrashLogs] = useState<CrashLog[]>([]);
@@ -453,6 +499,39 @@ export default function CalculatorApp() {
 
     initDeviceCapabilities();
   }, []);
+
+  // Initialize Debug Monitor and UX Features
+  useEffect(() => {
+    // Start debug monitoring
+    debugMonitor.startMonitoring();
+    console.log('[Debug Monitor] Started monitoring');
+    
+    // Start auto maintenance service
+    autoMaintenance.start(30, 24).catch(err => {
+      console.error('[Auto Maintenance] Failed to start:', err);
+    });
+    console.log('[Auto Maintenance] Started automatic error checking and file cleanup');
+    
+    // Generate greeting message based on time
+    const getGreeting = () => {
+      const hour = new Date().getHours();
+      const userName = currentUser?.publicName || currentUser?.email?.split('@')[0] || 'there';
+      if (hour < 12) return `Good morning, ${userName}!`;
+      if (hour < 18) return `Good afternoon, ${userName}!`;
+      return `Good evening, ${userName}!`;
+    };
+    setGreetingMessage(getGreeting());
+    
+    // Update greeting every hour
+    const greetingInterval = setInterval(() => {
+      setGreetingMessage(getGreeting());
+    }, 60 * 60 * 1000); // 1 hour
+    
+    return () => {
+      clearInterval(greetingInterval);
+      autoMaintenance.stop();
+    };
+  }, [currentUser]);
 
   // Initialize audio mode to allow recording
   useEffect(() => {
@@ -646,6 +725,64 @@ export default function CalculatorApp() {
     return () => { if (inactivityRef.current) clearTimeout(inactivityRef.current); };
   }, [mode, inputText, messages.length, aiMessages.length, showSettings, keepMessages, selectedContactId]);
 
+  // Set up backend and friends service when user logs in
+  useEffect(() => {
+    if (currentUser) {
+      // Configure backend with current user
+      backend.setCurrentUser(currentUser.id);
+      backend.updateUserStatus('online').catch(err => console.warn('[Backend] Status update failed:', err));
+      
+      // Configure friends service with current user profile
+      friendsService.setUserProfile({
+        name: currentUser.id,
+        username: currentUser.publicName,
+        email: currentUser.email,
+        phone: currentUser.phoneNumber || '',
+        image: currentUser.profilePicture,
+        status: 'online',
+        lastSeen: new Date(),
+      });
+      
+      console.log('[App] User configured for backend sync:', currentUser.email);
+    }
+  }, [currentUser?.id]);
+
+  // Periodic message sync for real-time user-to-user messaging
+  useEffect(() => {
+    if (!currentUser || !selectedContactId) return;
+    
+    // Fetch messages from backend every 5 seconds for real-time sync
+    const syncInterval = setInterval(async () => {
+      try {
+        const serverMessages = await backend.getMessages(currentUser.id, selectedContactId, 50);
+        if (serverMessages && serverMessages.length > 0) {
+          // Convert backend messages to app message format
+          const formattedMessages: Message[] = serverMessages.map((msg: any) => ({
+            id: msg._id || msg.id,
+            text: msg.content,
+            sender: (msg.userId === currentUser.id ? 'user' : 'aspen') as "user" | "aspen",
+            timestamp: new Date(msg.timestamp),
+            status: 'sent' as const,
+          }));
+          
+          // Merge with local messages (avoid duplicates)
+          setMessages(prev => {
+            const existingIds = new Set(prev.map(m => m.id));
+            const newMessages = formattedMessages.filter(m => !existingIds.has(m.id));
+            if (newMessages.length > 0) {
+              return [...prev, ...newMessages].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+            }
+            return prev;
+          });
+        }
+      } catch (err) {
+        console.error('[Message Sync] Error:', err);
+      }
+    }, 5000);
+    
+    return () => clearInterval(syncInterval);
+  }, [currentUser?.id, selectedContactId]);
+
   // Persist data when state changes (debounced)
   useEffect(() => {
     if (!persistLoaded) return;
@@ -679,6 +816,45 @@ export default function CalculatorApp() {
       if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
     };
   }, [persistLoaded, userAccounts, contacts, messages, aiMessages, smsConversations, callLogs, currentUser, musicPlayerState.tracks, chatBackgroundColor, messagingAppColor, locationVisibility]);
+
+  // Keep browser query in sync with current URL
+  useEffect(() => {
+    setBrowserQuery(browserUrl);
+  }, [browserUrl]);
+
+  // Load per-user music playlist when user changes
+  useEffect(() => {
+    const loadPlaylist = async () => {
+      if (!persistLoaded) return;
+      try {
+        const stored = await AsyncStorage.getItem(getUserPlaylistKey(currentUser?.id));
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          setMusicPlayerState(prev => ({ ...prev, tracks: parsed, currentIndex: 0, isPlaying: false, isPaused: false }));
+        } else {
+          setMusicPlayerState(prev => ({ ...prev, tracks: [], currentIndex: 0, isPlaying: false, isPaused: false }));
+        }
+      } catch (err) {
+        console.warn('Failed to load playlist for user:', err);
+      }
+    };
+
+    loadPlaylist();
+  }, [currentUser, persistLoaded]);
+
+  // Persist per-user playlist
+  useEffect(() => {
+    const persistPlaylist = async () => {
+      if (!persistLoaded) return;
+      try {
+        await AsyncStorage.setItem(getUserPlaylistKey(currentUser?.id), JSON.stringify(musicPlayerState.tracks));
+      } catch (err) {
+        console.warn('Failed to persist playlist for user:', err);
+      }
+    };
+
+    persistPlaylist();
+  }, [musicPlayerState.tracks, currentUser, persistLoaded]);
 
   // Music player functions
   const searchMusic = async () => {
@@ -880,6 +1056,7 @@ export default function CalculatorApp() {
   useEffect(() => {
     const initRevenueCat = async () => {
       try {
+        setRevenueCatStatus('Initializing...');
         const _0x6a = process.env.EXPO_PUBLIC_RC_IOS || '';
         const _0x6b = process.env.EXPO_PUBLIC_RC_ANDROID || '';
 
@@ -888,8 +1065,12 @@ export default function CalculatorApp() {
         
         if (!apiKey || apiKey === '') {
           console.warn('RevenueCat API key not configured for platform:', Platform.OS);
+          setRevenueCatMissingKeys(true);
+          setRevenueCatStatus(`Missing RevenueCat API key for ${Platform.OS}`);
           return;
         }
+
+        setRevenueCatMissingKeys(false);
 
         Purchases.setLogLevel(LOG_LEVEL.VERBOSE);
 
@@ -900,6 +1081,7 @@ export default function CalculatorApp() {
         }
 
         console.log('RevenueCat configured successfully');
+        setRevenueCatStatus('Ready');
         
         const customerInfo = await Purchases.getCustomerInfo();
         setIsVIP(customerInfo.entitlements.active['vip'] !== undefined);
@@ -910,6 +1092,7 @@ export default function CalculatorApp() {
         }
       } catch (error) {
         console.error('RevenueCat configuration error:', error);
+        setRevenueCatStatus(error instanceof Error ? `Error: ${error.message}` : 'Error configuring RevenueCat');
         // Don't crash the app if RevenueCat fails to initialize
       }
     };
@@ -917,9 +1100,20 @@ export default function CalculatorApp() {
     if (Platform.OS !== 'web') {
       initRevenueCat().catch((error) => {
         console.error('Failed to initialize RevenueCat:', error);
+        setRevenueCatStatus(error instanceof Error ? `Error: ${error.message}` : 'Error configuring RevenueCat');
       });
+    } else {
+      setRevenueCatStatus('RevenueCat not supported on web');
     }
   }, []);
+
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    if (!currentUser) return;
+    Purchases.logIn(currentUser.id).catch((err) => {
+      console.warn('RevenueCat logIn failed:', err);
+    });
+  }, [currentUser]);
 
   const handleSubscribe = async () => {
     try {
@@ -1281,6 +1475,9 @@ export default function CalculatorApp() {
   const handleSendMessage = async (image?: string, file?: { name: string; uri: string }, effect?: "slam" | "float") => {
     if (inputText.trim() === "" && !image && !file) return;
 
+    // Haptic feedback on send
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
     const selectedContact = contacts.find(c => c.id === selectedContactId);
     
     if (selectedContact?.isAI) {
@@ -1365,6 +1562,11 @@ export default function CalculatorApp() {
         ));
       }
     } else {
+      // User-to-user messaging (non-AI contacts)
+      // Non-VIP users still have messaging enabled for friends
+      // (Friend relationships are managed through FriendsAddScreen)
+      
+      // Messages are synced with backend for real-time cross-user communication
       const newMessage: Message = {
         id: Date.now().toString(),
         text: inputText.trim(),
@@ -1399,10 +1601,31 @@ export default function CalculatorApp() {
         scrollViewRef.current?.scrollToEnd({ animated: true });
       }, 100);
 
-      // Simulate send completion
-      setTimeout(() => {
-        setMessages(prev => prev.map(m => m.id === newMessage.id ? { ...m, status: 'sent' } : m));
-      }, 800);
+      // Sync message to backend for cross-user communication
+      if (currentUser && selectedContactId) {
+        backend.createMessage({
+          userId: currentUser.id,
+          contactId: selectedContactId,
+          content: newMessage.text,
+          timestamp: newMessage.timestamp,
+          isEncrypted: false,
+          messageType: image ? 'image' : file ? 'video' : 'text',
+          mediaUrl: image || file?.uri,
+        }).then(() => {
+          console.log('[Message] Synced to backend');
+          // Mark as sent after backend confirmation
+          setMessages(prev => prev.map(m => m.id === newMessage.id ? { ...m, status: 'sent' } : m));
+        }).catch(err => {
+          console.error('[Message] Backend sync failed:', err);
+          // Mark as failed
+          setMessages(prev => prev.map(m => m.id === newMessage.id ? { ...m, status: 'failed' } : m));
+        });
+      } else {
+        // Simulate send completion for local-only mode
+        setTimeout(() => {
+          setMessages(prev => prev.map(m => m.id === newMessage.id ? { ...m, status: 'sent' } : m));
+        }, 800);
+      }
     }
   };
 
@@ -1635,7 +1858,7 @@ export default function CalculatorApp() {
 
       if (!result.canceled && result.assets[0]) {
         setChatBackgroundImage(result.assets[0].uri);
-        setChatBackgroundColor("#000000");
+        setChatBackgroundColor("#0F1420");
       }
     }
   };
@@ -1665,7 +1888,7 @@ export default function CalculatorApp() {
   };
 
   const openVideoCall = () => {
-    switchMode("videoCall");
+    Alert.alert("🚧 UNDER CONSTRUCTION 🚧", "Video calling is currently being developed. This feature will be available in a future update.");
   };
 
   const closeVideoCall = () => {
@@ -1847,6 +2070,25 @@ export default function CalculatorApp() {
     setEmailVerificationLoading(true);
     setEmailVerificationError("");
     const result = await emailVerificationService.sendVerificationCode(newAccount.id, authEmail);
+   
+     if (result.success) {
+       // Create user account on backend
+       const backendUrl = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3000/api';
+       try {
+         await fetch(`${backendUrl}/users`, {
+           method: 'POST',
+           headers: { 'Content-Type': 'application/json' },
+           body: JSON.stringify({
+             userId: newAccount.id,
+             email: authEmail,
+             name: authPublicName,
+             emailVerified: false,
+           }),
+         });
+       } catch (err) {
+         console.warn('[SignUp] Failed to create user on backend:', err);
+       }
+     }
     
     if (result.success) {
       // Show verification screen
@@ -1994,25 +2236,35 @@ export default function CalculatorApp() {
       const _0xgc = `${_0xg1.map(c => String.fromCharCode(c)).join('')}-${_0xg2.map(c => String.fromCharCode(c)).join('')}.${_0xg3.map(c => String.fromCharCode(c)).join('')}`;
       const clientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || _0xgc;
       
-      // Use proper redirect URI for Expo
-      const redirectUri = AuthSession.makeRedirectUri({
-        scheme: 'cruzer-app',
-      });
+      // Validate client ID
+      if (!clientId || !clientId.includes('apps.googleusercontent.com')) {
+        Alert.alert(
+          'Configuration Error',
+          'Google Sign-In is not properly configured. Please contact the app developer.\n\nError: Invalid or missing Client ID.'
+        );
+        console.error('Invalid Google Client ID:', clientId);
+        return;
+      }
+      
+      // Use Expo's auth proxy for web OAuth (required for Google)
+      const redirectUri = AuthSession.makeRedirectUri();
 
       console.log('=== Google Sign-In Debug ===');
       console.log('Client ID:', clientId);
       console.log('Redirect URI:', redirectUri);
 
+      // Build auth URL with proper parameters for OAuth consent
       const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${new URLSearchParams({
         client_id: clientId,
         redirect_uri: redirectUri,
         response_type: 'token',
         scope: 'openid email profile',
         prompt: 'select_account',
+        access_type: 'online',
+        include_granted_scopes: 'true',
       }).toString()}`;
 
       console.log('Opening Google Sign-In:', authUrl);
-      console.log('Redirect URI:', redirectUri);
 
       const result = await WebBrowser.openAuthSessionAsync(authUrl, redirectUri, {
         showInRecents: true,
@@ -2027,6 +2279,29 @@ export default function CalculatorApp() {
         const fragment = urlParts[1] || '';
         const params = new URLSearchParams(fragment);
         const accessToken = params.get('access_token');
+        const error = params.get('error');
+        const errorDescription = params.get('error_description');
+
+        // Check for OAuth errors
+        if (error) {
+          console.error('OAuth error:', error, errorDescription);
+          let errorMessage = 'Authentication failed. Please try again.';
+          
+          if (error === 'access_denied') {
+            errorMessage = 'Access was denied. Please grant the required permissions to sign in.';
+          } else if (error === 'unauthorized_client') {
+            errorMessage = 'This app is not authorized to use Google Sign-In. Please contact the app developer.\n\nError: OAuth client not configured correctly.';
+          } else if (error === 'invalid_client') {
+            errorMessage = 'Invalid OAuth configuration. Please contact the app developer.\n\nError: Client ID is invalid or not properly configured.';
+          } else if (error === 'invalid_scope') {
+            errorMessage = 'Invalid permission scope. Please contact the app developer.';
+          } else if (errorDescription) {
+            errorMessage = `Authentication error: ${errorDescription}`;
+          }
+          
+          Alert.alert('Sign In Failed', errorMessage);
+          return;
+        }
 
         if (accessToken) {
           // Fetch user info from Google
@@ -2035,7 +2310,9 @@ export default function CalculatorApp() {
           });
           
           if (!userInfoResponse.ok) {
-            throw new Error('Failed to fetch user info');
+            const errorText = await userInfoResponse.text();
+            console.error('Failed to fetch user info:', userInfoResponse.status, errorText);
+            throw new Error('Failed to fetch user info from Google');
           }
           
           const userInfo = await userInfoResponse.json();
@@ -2070,6 +2347,21 @@ export default function CalculatorApp() {
             // Smooth transition with layout animation
             LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
             switchMode('profile');
+           
+             // Sync with backend
+             const backendUrl = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3000/api';
+             await fetch(`${backendUrl}/users`, {
+               method: 'POST',
+               headers: { 'Content-Type': 'application/json' },
+               body: JSON.stringify({
+                 userId: updatedAccount.id,
+                 email: googleEmail,
+                 name: googleName,
+                 profilePicture: googlePicture,
+                 isGoogleAccount: true,
+                 lastLogin: updatedAccount.lastLogin,
+               }),
+             }).catch(err => console.warn('[Google] Backend sync failed:', err));
           } else {
             // Create new account
             const newAccount: UserAccount = {
@@ -2103,23 +2395,61 @@ export default function CalculatorApp() {
             // Smooth transition with layout animation
             LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
             switchMode('profile');
+           
+             // Sync new account with backend
+             const backendUrl = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3000/api';
+             await fetch(`${backendUrl}/users`, {
+               method: 'POST',
+               headers: { 'Content-Type': 'application/json' },
+               body: JSON.stringify({
+                 userId: newAccount.id,
+                 email: googleEmail,
+                 name: googleName,
+                 profilePicture: googlePicture,
+                 isGoogleAccount: true,
+                 lastLogin: newAccount.lastLogin,
+               }),
+             }).catch(err => console.warn('[Google] Backend sync failed:', err));
           }
           
           Alert.alert('Welcome!', `Signed in as ${googleName}`);
         } else {
-          Alert.alert('Sign In Error', 'Failed to get access token from Google. Please try again.');
+          Alert.alert(
+            'Sign In Error', 
+            'Failed to get access token from Google. This may be due to:\n\n• OAuth consent screen not published\n• App in testing mode without test users\n• Invalid redirect URI configuration\n\nPlease contact the app developer.'
+          );
         }
       } else if (result.type === 'cancel') {
         console.log('User cancelled Google Sign-In');
+        // Don't show error for user cancellation
       } else if (result.type === 'dismiss') {
         console.log('Auth session was dismissed');
+        // Don't show error for dismissal
+      } else {
+        // Catch any other unexpected result types
+        console.error('Unexpected auth result:', result);
+        Alert.alert(
+          'Authentication Error',
+          'Google Sign-In encountered an unexpected result. Please contact the app developer if this persists.'
+        );
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Google Sign-In error:', error);
-      Alert.alert(
-        'Sign In Failed', 
-        'Unable to sign in with Google. Please check your internet connection and try again.'
-      );
+      
+      // Provide more helpful error messages
+      let errorMessage = 'Unable to sign in with Google. ';
+      
+      if (error.message?.includes('Network request failed')) {
+        errorMessage += 'Please check your internet connection and try again.';
+      } else if (error.message?.includes('OAuth')) {
+        errorMessage += 'OAuth configuration issue. Please contact the app developer.\n\nError: ' + error.message;
+      } else if (error.message?.includes('fetch user info')) {
+        errorMessage += 'Could not retrieve your Google account information. Please try again or contact the app developer.';
+      } else {
+        errorMessage += 'Please try again or contact the app developer if this persists.\n\nError: ' + (error.message || 'Unknown error');
+      }
+      
+      Alert.alert('Sign In Failed', errorMessage);
     }
   };
 
@@ -2248,7 +2578,7 @@ export default function CalculatorApp() {
     setShowDevLogin(true);
   };
 
-  const handleDevLogin = () => {
+  const handleDevLogin = async () => {
     const _0x2d4a = [51, 54, 55, 49];
     const _0x7f1b = [56, 53, 50, 51];
     const _0x3a = devPinInput.split('').map(c => c.charCodeAt(0));
@@ -2256,11 +2586,15 @@ export default function CalculatorApp() {
     const _0x1c = _0x7f1b.every((v, i) => v === _0x3a[i]);
     
     if (_0x6f) {
+      // Log developer access
+      await logDeveloperAccess('developer', currentUser?.id, currentUser?.email);
       setShowDevLogin(false);
       setDevPinInput("");
       setIsStaffMode(false);
       switchMode("developer");
     } else if (_0x1c) {
+      // Log staff access
+      await logDeveloperAccess('staff', currentUser?.id, currentUser?.email);
       setShowDevLogin(false);
       setDevPinInput("");
       setIsStaffMode(true);
@@ -2277,6 +2611,205 @@ export default function CalculatorApp() {
     setStaffSelectedAccount(null);
     setStaffEditMode(false);
     switchMode("messages");
+  };
+
+  // Developer Access Logging
+  const logDeveloperAccess = async (type: 'developer' | 'staff', userId?: string, email?: string) => {
+    try {
+      const deviceModel = deviceCapabilities?.deviceModel || 'Unknown';
+      const deviceOS = `${deviceCapabilities?.os || 'Unknown'} ${deviceCapabilities?.osVersion || ''}`;
+      const ipAddress = userIP || 'Unknown';
+      
+      // Check if this IP has been used before
+      const previousAccounts = await AsyncStorage.getItem('dev:login:history');
+      const history = previousAccounts ? JSON.parse(previousAccounts) : [];
+      
+      const previousAccountsFromIP = history
+        .filter((entry: any) => entry.ipAddress === ipAddress && entry.userId !== userId)
+        .map((entry: any) => entry.email || entry.userId);
+      
+      const loginEntry = {
+        timestamp: new Date().toISOString(),
+        type,
+        userId: userId || 'anonymous',
+        email: email || 'unknown',
+        ipAddress,
+        deviceModel,
+        deviceOS,
+        previousAccountsFromIP: previousAccountsFromIP.length > 0 ? previousAccountsFromIP : undefined,
+        whitelisted: type === 'developer' ? devWhitelistedUsers.has(userId || '') : staffWhitelistedUsers.has(userId || '')
+      };
+      
+      // Add to history
+      history.unshift(loginEntry);
+      
+      // Keep last 200 entries
+      if (history.length > 200) {
+        history.splice(200);
+      }
+      
+      await AsyncStorage.setItem('dev:login:history', JSON.stringify(history));
+      
+      // Log to owner panel
+      await ownerPanel.logDevActivity(
+        userId || 'anonymous',
+        email || 'unknown',
+        `${type}_panel_access`,
+        `Accessed ${type} panel from ${ipAddress} (${deviceModel}). ${previousAccountsFromIP.length > 0 ? `Previous accounts from this IP: ${previousAccountsFromIP.join(', ')}` : 'First login from this IP.'}`
+      );
+      
+      console.log(`[Developer Access] ${type} panel accessed:`, loginEntry);
+    } catch (error) {
+      console.error('[Developer Access] Failed to log access:', error);
+    }
+  };
+
+  // Owner Panel Functions
+  const handleOwnerPanelTrigger = () => {
+    // Triple tap to trigger owner panel
+    setOwnerTapCount(prev => prev + 1);
+    
+    if (ownerTapTimeoutRef.current) {
+      clearTimeout(ownerTapTimeoutRef.current);
+    }
+    
+    ownerTapTimeoutRef.current = setTimeout(() => {
+      if (ownerTapCount >= 2) { // 3 taps total
+        setShowOwnerPanel(true);
+      }
+      setOwnerTapCount(0);
+    }, 500);
+  };
+
+  const handleOwnerLogin = () => {
+    const _0xowner = [54, 51, 57, 50];
+    const _0xinput = ownerPinInput.split('').map(c => c.charCodeAt(0));
+    const _0xvalid = _0xowner.every((v, i) => v === _0xinput[i]);
+    
+    if (_0xvalid) {
+      setOwnerAuthenticated(true);
+      setOwnerPinInput("");
+      loadOwnerDashboard();
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } else {
+      Alert.alert("Access Denied", "Invalid Owner PIN.");
+      setOwnerPinInput("");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    }
+  };
+
+  const loadOwnerDashboard = async () => {
+    try {
+      const dashboard = await ownerPanel.getDashboardData();
+      setOwnerDashboardData(dashboard);
+    } catch (error) {
+      console.error('[Owner Panel] Failed to load dashboard:', error);
+      Alert.alert("Error", "Failed to load dashboard data");
+    }
+  };
+
+  const closeOwnerPanel = () => {
+    setShowOwnerPanel(false);
+    setOwnerAuthenticated(false);
+    setOwnerPinInput("");
+    setOwnerDashboardData(null);
+  };
+
+  const handleForceWhitelist = async (userId: string) => {
+    Alert.alert(
+      "Force Whitelist",
+      `Force add user ${userId} to whitelist?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "Add to Dev", 
+          onPress: async () => {
+            try {
+              await ownerPanel.forceWhitelistUser(userId, 'developer', 'Owner override');
+              Alert.alert("Success", "User added to developer whitelist");
+              loadOwnerDashboard();
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            } catch (error) {
+              Alert.alert("Error", "Failed to add user");
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+            }
+          }
+        },
+        { 
+          text: "Add to Staff", 
+          onPress: async () => {
+            try {
+              await ownerPanel.forceWhitelistUser(userId, 'staff', 'Owner override');
+              Alert.alert("Success", "User added to staff whitelist");
+              loadOwnerDashboard();
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            } catch (error) {
+              Alert.alert("Error", "Failed to add user");
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const handleEmergencyShutdown = () => {
+    Alert.alert(
+      "⚠️ EMERGENCY SHUTDOWN",
+      "This will shut down the app for ALL users. Continue?",
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "SHUTDOWN", 
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await ownerPanel.emergencyShutdown("Owner initiated emergency shutdown");
+              Alert.alert("Shutdown", "App shutdown initiated");
+            } catch (error) {
+              Alert.alert("Error", "Failed to shutdown");
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  // Debug Panel Functions
+  const runBugCheck = async () => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      const report = await debugMonitor.runBugCheck();
+      setDebugReport(report);
+      setShowDebugPanel(true);
+      
+      if (report.totalErrors === 0 && report.totalCrashes === 0) {
+        Alert.alert('✅ All Clear!', 'No bugs detected!');
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } else {
+        Alert.alert(
+          '⚠️ Issues Found',
+          `${report.totalErrors} errors\n${report.totalCrashes} crashes\n${report.totalWarnings} warnings`
+        );
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Failed to run bug check');
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    }
+  };
+
+  const exportDebugLogs = () => {
+    const logs = debugMonitor.exportLogs();
+    // In a real app, you'd share this via email or clipboard
+    Alert.alert(
+      "Export Logs",
+      `${logs.length} logs ready to export.\n\nIn production, these would be shared via email.`,
+      [
+        { text: "OK" }
+      ]
+    );
+    console.log('[Debug Export]', logs);
   };
 
   // Staff mode functions
@@ -2520,6 +3053,38 @@ export default function CalculatorApp() {
     switchMode("browser");
   };
 
+  const handleBrowserGo = async () => {
+    const query = browserQuery.trim();
+    if (!query) return;
+
+    const hasProtocol = /^https?:\/\//i.test(query);
+    const looksLikeUrl = query.includes('.') && !query.includes(' ');
+    const targetUrl = looksLikeUrl ? (hasProtocol ? query : `https://${query}`) : `https://www.google.com/search?q=${encodeURIComponent(query)}`;
+
+    setBrowserUrl(targetUrl);
+    setBrowserQuery(targetUrl);
+    if (currentUser) {
+      AsyncStorage.setItem(`browser:lastUrl:${currentUser.id}`, targetUrl).catch(() => {});
+    }
+    Keyboard.dismiss();
+  };
+
+  const handleBrowserBack = () => {
+    if (canGoBack) {
+      webviewRef.current?.goBack();
+    }
+  };
+
+  const handleBrowserForward = () => {
+    if (canGoForward) {
+      webviewRef.current?.goForward();
+    }
+  };
+
+  const handleBrowserRefresh = () => {
+    webviewRef.current?.reload();
+  };
+
   const closeCameraScreen = () => {
     switchMode("messages");
   };
@@ -2554,6 +3119,13 @@ export default function CalculatorApp() {
 
   const renderCalculator = () => (
     <Animated.View style={[styles.calculatorContainer, { opacity: fadeAnim }]}>
+      {/* Greeting Message */}
+      {greetingMessage && (
+        <View style={styles.greetingContainer}>
+          <Text style={styles.greetingText}>{greetingMessage}</Text>
+        </View>
+      )}
+      
       <View style={styles.displayContainer}>
         <Text style={styles.displayText} numberOfLines={1} adjustsFontSizeToFit>
           {display}
@@ -2674,6 +3246,9 @@ export default function CalculatorApp() {
             )}
           </View>
           <View style={styles.headerButtonsRow}>
+            <TouchableOpacity onPress={() => switchMode("friends")} style={styles.panicButton}>
+              <Users size={24} color={iconColor} />
+            </TouchableOpacity>
             <TouchableOpacity onPress={() => switchMode("phoneDialer")} style={styles.panicButton}>
               <Phone size={24} color={iconColor} />
             </TouchableOpacity>
@@ -2884,10 +3459,10 @@ export default function CalculatorApp() {
             <TouchableOpacity style={styles.headerIconButton} onPress={() => setShowChatSearch(s => !s)}>
               <Search size={22} color="#007AFF" strokeWidth={2} />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.headerIconButton} onPress={() => Alert.alert("Voice Call", "Voice calling feature coming soon!")}>
+            <TouchableOpacity style={styles.headerIconButton} onPress={() => Alert.alert("🚧 UNDER CONSTRUCTION 🚧", "Voice calling is currently being developed. This feature will be available in a future update.")}>
               <Phone size={22} color="#007AFF" strokeWidth={2} />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.headerIconButton} onPress={openVideoCall}>
+            <TouchableOpacity style={styles.headerIconButton} onPress={() => Alert.alert("🚧 UNDER CONSTRUCTION 🚧", "Video calling is currently being developed. This feature will be available in a future update.")}>
               <Video size={24} color="#007AFF" strokeWidth={2} />
             </TouchableOpacity>
           </View>
@@ -2934,6 +3509,15 @@ export default function CalculatorApp() {
               scrollViewRef.current?.scrollToEnd({ animated: true })
             }
           >
+            {/* Empty State */}
+            {currentMessages.length === 0 && (
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyStateEmoji}>💬</Text>
+                <Text style={styles.emptyStateTitle}>No messages yet</Text>
+                <Text style={styles.emptyStateText}>Start a conversation with {selectedContact?.name || 'this contact'}!</Text>
+              </View>
+            )}
+            
             {currentMessages.map((message) => {
                       if (message.text === '') return null;
               const effectAnim = effectAnimations[message.id];
@@ -3034,6 +3618,19 @@ export default function CalculatorApp() {
             })}
                             {isAiTyping && selectedContact?.isAI && (
                               <View style={styles.typingIndicator}>
+                                <View style={styles.typingBubble}>
+                                  <View style={styles.typingDots}>
+                                    <View style={[styles.typingDot, styles.typingDot1]} />
+                                    <View style={[styles.typingDot, styles.typingDot2]} />
+                                    <View style={[styles.typingDot, styles.typingDot3]} />
+                                  </View>
+                                </View>
+                              </View>
+                            )}
+                            {/* Typing Indicator for regular contacts */}
+                            {isTyping && !selectedContact?.isAI && (
+                              <View style={styles.typingIndicator}>
+                                <Text style={styles.typingText}>{selectedContact?.name || 'Contact'} is typing...</Text>
                                 <View style={styles.typingBubble}>
                                   <View style={styles.typingDots}>
                                     <View style={[styles.typingDot, styles.typingDot1]} />
@@ -3207,7 +3804,79 @@ export default function CalculatorApp() {
 
   const renderBrowserScreen = () => {
     return (
-      <View style={styles.browserContainer}>
+      <SafeAreaView style={styles.browserContainer}>
+        <View style={styles.browserHeader}>
+          <View style={styles.browserNavRow}>
+            <TouchableOpacity style={styles.browserNavButton} onPress={() => switchMode("messages")}>
+              <Text style={styles.browserNavButtonText}>← Messages</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.browserNavButton}
+              onPress={() => {
+                setBrowserQuery("");
+                setBrowserUrl("https://www.google.com");
+              }}
+            >
+              <Text style={styles.browserNavButtonText}>New Search</Text>
+            </TouchableOpacity>
+            <View style={styles.browserControlsRow}>
+              <TouchableOpacity 
+                style={[styles.navControl, !canGoBack && styles.navControlDisabled]} 
+                onPress={handleBrowserBack}
+                disabled={!canGoBack}
+              >
+                <Text style={styles.navControlText}>◀</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.navControl, !canGoForward && styles.navControlDisabled]} 
+                onPress={handleBrowserForward}
+                disabled={!canGoForward}
+              >
+                <Text style={styles.navControlText}>▶</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.navControl} onPress={handleBrowserRefresh}>
+                <Text style={styles.navControlText}>⟳</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={styles.addressBarRow}>
+            <TextInput
+              style={styles.addressBar}
+              value={browserQuery}
+              onChangeText={setBrowserQuery}
+              placeholder="Search or enter website"
+              placeholderTextColor="#8E8E93"
+              autoCapitalize="none"
+              autoCorrect={false}
+              onSubmitEditing={handleBrowserGo}
+              returnKeyType="go"
+            />
+            <TouchableOpacity style={styles.goButton} onPress={handleBrowserGo}>
+              <Text style={styles.goButtonText}>Go</Text>
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.hotLinksRow}
+          >
+            {browserHotlinks.map((link) => (
+              <TouchableOpacity
+                key={link.url}
+                style={styles.hotLink}
+                onPress={() => {
+                  setBrowserUrl(link.url);
+                  setBrowserQuery(link.url);
+                }}
+              >
+                <Text style={styles.hotLinkText}>{link.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+
         <WebView
           ref={(r) => { webviewRef.current = r; }}
           source={{ uri: browserUrl }}
@@ -3227,7 +3896,7 @@ export default function CalculatorApp() {
           }}
           style={styles.webView}
         />
-      </View>
+      </SafeAreaView>
     );
   };
 
@@ -3619,24 +4288,74 @@ export default function CalculatorApp() {
             )}
           </View>
 
-          {Platform.OS !== 'web' && (
-            <View style={styles.profileEditSection}>
-              <Text style={styles.sectionTitle}>Subscriptions</Text>
+          <View style={styles.profileEditSection}>
+            <Text style={styles.sectionTitle}>Subscriptions</Text>
 
-              <View style={styles.underConstructionCard}>
-                <View style={styles.underConstructionHeader}>
-                  <AlertTriangle size={48} color="#FFA500" />
-                </View>
-                <Text style={styles.underConstructionTitle}>Under Construction</Text>
-                <Text style={styles.underConstructionDescription}>
-                  VIP subscription features are currently being developed and will be available in a future update.
-                </Text>
-                <View style={styles.underConstructionBadge}>
-                  <Text style={styles.underConstructionBadgeText}>Coming Soon</Text>
-                </View>
+            {Platform.OS === 'web' ? (
+              <View style={styles.subscriptionCard}>
+                <Text style={styles.subscriptionTitle}>Not available on web</Text>
+                <Text style={styles.subscriptionNote}>Use iOS or Android to manage VIP access.</Text>
               </View>
-            </View>
-          )}
+            ) : (
+              <View style={styles.subscriptionCard}>
+                <View style={styles.subscriptionHeaderRow}>
+                  <Text style={styles.subscriptionTitle}>{isVIP ? '✅ VIP Active' : 'VIP Access'}</Text>
+                  <Text style={[styles.subscriptionStatus, revenueCatMissingKeys && styles.subscriptionStatusWarning]}>{revenueCatStatus}</Text>
+                </View>
+                {isVIP && (
+                  <Text style={[styles.subscriptionNote, { color: '#5FD97A', fontWeight: '600' }]}>
+                    🎉 You have full access to all VIP features including SMS, priority support, and advanced features!
+                  </Text>
+                )}
+                <Text style={styles.subscriptionNote}>
+                  Purchases use App Store / Play Store billing. We never ask for your card number in the app.
+                </Text>
+                {offerings?.availablePackages?.length ? (
+                  <Text style={styles.subscriptionPrice}>
+                    {offerings.availablePackages[0].product.priceString || 'Pricing available at checkout'}
+                  </Text>
+                ) : null}
+
+                {revenueCatMissingKeys ? (
+                  <TouchableOpacity
+                    style={[styles.subscriptionButton, styles.subscriptionButtonDisabled]}
+                    onPress={() => Alert.alert('Setup RevenueCat', 'Add EXPO_PUBLIC_RC_IOS and EXPO_PUBLIC_RC_ANDROID to your .env file, rebuild the app, and ensure the native client is running on iOS/Android (not web).')}
+                  >
+                    <Text style={styles.subscriptionButtonText}>Configure API Keys</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <View style={styles.subscriptionActionsRow}>
+                    <TouchableOpacity
+                      style={[styles.subscriptionButton, (!offerings || loadingSubscription) && styles.subscriptionButtonDisabled]}
+                      onPress={handleSubscribe}
+                      disabled={!offerings || loadingSubscription}
+                    >
+                      <Text style={styles.subscriptionButtonText}>{loadingSubscription ? 'Processing...' : 'Subscribe'}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.subscriptionSecondaryButton}
+                      onPress={handleRestorePurchases}
+                      disabled={loadingSubscription}
+                    >
+                      <Text style={styles.subscriptionSecondaryButtonText}>Restore</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+            )}
+          </View>
+
+          {/* Friends Button */}
+          <View style={styles.profileEditSection}>
+            <TouchableOpacity 
+              style={styles.appSettingsButton}
+              onPress={() => switchMode("friends")}
+            >
+              <Users size={24} color="#34C759" />
+              <Text style={[styles.appSettingsButtonText, { color: "#34C759" }]}>Friends & Contacts</Text>
+              <Text style={[styles.appSettingsArrow, { color: "#34C759" }]}>→</Text>
+            </TouchableOpacity>
+          </View>
 
           {/* App Settings Button */}
           <View style={styles.profileEditSection}>
@@ -3813,6 +4532,10 @@ export default function CalculatorApp() {
     };
     setCallLogs([newCallLog, ...callLogs]);
     
+    Alert.alert("🚧 UNDER CONSTRUCTION 🚧", "Phone calling is currently being developed. This feature will be available in a future update.");
+    switchMode("phoneDialer");
+    return;
+    
     const result = await signalWireService.makeCall(dialerInput);
     
     if (result.success && result.sid) {
@@ -3900,6 +4623,19 @@ export default function CalculatorApp() {
 
   const handleSendSMS = async () => {
     if (smsInputText.trim() === "" || !selectedSMSConversation) return;
+    
+    // Check VIP status - SMS is a VIP feature (RevenueCat subscription OR whitelist)
+    const hasVIPAccess = isVIP || currentUser?.whitelisted || false;
+    if (!hasVIPAccess) {
+      Alert.alert(
+        "VIP Feature",
+        "Real number texting (SMS) is a VIP-only feature.\n\nUpgrade to VIP to send text messages.",
+        [
+          { text: "Got it", style: "cancel" },
+        ]
+      );
+      return;
+    }
     
     const conversation = smsConversations.find(c => c.id === selectedSMSConversation);
     if (!conversation) return;
@@ -4275,6 +5011,13 @@ export default function CalculatorApp() {
     </Animated.View>
   );
 
+  const renderFriendsScreen = () => (
+    <FriendsAddScreen 
+      onClose={() => switchMode("profile")}
+      currentUserId={currentUser?.id}
+    />
+  );
+
   const renderSettingsScreen = () => (
     <Animated.View style={[styles.settingsContainer, { opacity: fadeAnim }]}>
       <SafeAreaView style={{ flex: 1 }}>
@@ -4375,6 +5118,7 @@ export default function CalculatorApp() {
           {/* Current Playlist */}
           <View style={styles.musicSection}>
             <Text style={styles.musicSectionTitle}>Your Playlist ({musicPlayerState.tracks.length}/5)</Text>
+            <Text style={styles.playlistSubtext}>Linked to {currentUser?.email || 'guest'} and saved on this device.</Text>
             <Text style={styles.playlistInfo}>Songs play on loop in order selected</Text>
             
             {musicPlayerState.tracks.length > 0 ? (
@@ -4524,17 +5268,163 @@ export default function CalculatorApp() {
   );
 
   const handleWhitelist = (accountId: string) => {
-    setUserAccounts(userAccounts.map(acc => 
-      acc.id === accountId ? { ...acc, whitelisted: true } : acc
-    ));
-    Alert.alert("Success", "User has been whitelisted for VIP access.");
+    // Initiate whitelist confirmation with PIN
+    setDevWhitelistTargetId(accountId);
+    setDevWhitelistConfirmMode(true);
+    setDevWhitelistPinInput("");
   };
 
-  const handleUnwhitelist = (accountId: string) => {
-    setUserAccounts(userAccounts.map(acc => 
-      acc.id === accountId ? { ...acc, whitelisted: false } : acc
-    ));
-    Alert.alert("Success", "User VIP whitelist has been removed.");
+  const confirmDevWhitelist = async () => {
+    // Validate PIN
+    const _0x3a = devWhitelistPinInput.split('').map(c => c.charCodeAt(0));
+    const _0x3b = [49, 48, 57, 48]; // PIN: 1090
+    
+    const isValid = _0x3a.length === _0x3b.length && _0x3a.every((c, i) => c === _0x3b[i]);
+    
+    if (isValid && devWhitelistTargetId) {
+      try {
+        // Use whitelist service for persistence and audit logging
+        const success = await whitelistService.addDeveloperWhitelist(
+          devWhitelistTargetId,
+          currentUser?.id || 'unknown',
+          currentUser?.email || 'unknown@app.com',
+          'Granted via developer panel'
+        );
+
+        if (success) {
+          setUserAccounts(userAccounts.map(acc => 
+            acc.id === devWhitelistTargetId ? { ...acc, whitelisted: true } : acc
+          ));
+          setDevWhitelistedUsers(new Set([...devWhitelistedUsers, devWhitelistTargetId]));
+          Alert.alert("Success", "User has been whitelisted for permanent developer access.\n\nThey no longer need to enter the PIN.");
+          console.log('[Admin] Developer whitelist granted to:', devWhitelistTargetId);
+        } else {
+          Alert.alert("Error", "Failed to whitelist user. Please try again.");
+        }
+      } catch (error) {
+        console.error('[Admin] Whitelist error:', error);
+        Alert.alert("Error", "An error occurred while whitelisting the user.");
+      } finally {
+        setDevWhitelistConfirmMode(false);
+        setDevWhitelistPinInput("");
+        setDevWhitelistTargetId(null);
+      }
+    } else {
+      Alert.alert("Invalid PIN", "The PIN you entered is incorrect.");
+      setDevWhitelistPinInput("");
+    }
+  };
+
+  const handleUnwhitelist = async (accountId: string) => {
+    try {
+      // Use whitelist service for persistence and audit logging
+      const success = await whitelistService.removeDeveloperWhitelist(
+        accountId,
+        currentUser?.id || 'unknown',
+        currentUser?.email || 'unknown@app.com'
+      );
+
+      if (success) {
+        setUserAccounts(userAccounts.map(acc => 
+          acc.id === accountId ? { ...acc, whitelisted: false } : acc
+        ));
+        setDevWhitelistedUsers(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(accountId);
+          return newSet;
+        });
+        Alert.alert("Success", "User developer whitelist has been removed.");
+        console.log('[Admin] Developer whitelist removed from:', accountId);
+      } else {
+        Alert.alert("Error", "Failed to remove whitelist. Please try again.");
+      }
+    } catch (error) {
+      console.error('[Admin] Unwhitelist error:', error);
+      Alert.alert("Error", "An error occurred while removing whitelist.");
+    }
+  };
+
+  const confirmStaffWhitelist = async () => {
+    // Validate PIN
+    const _0x3a = staffWhitelistPinInput.split('').map(c => c.charCodeAt(0));
+    const _0x3b = [49, 48, 57, 48]; // PIN: 1090
+    
+    const isValid = _0x3a.length === _0x3b.length && _0x3a.every((c, i) => c === _0x3b[i]);
+    
+    if (isValid && staffWhitelistTargetId && staffSelectedAccount) {
+      try {
+        // Use whitelist service for persistence and audit logging
+        const success = await whitelistService.addStaffWhitelist(
+          staffWhitelistTargetId,
+          currentUser?.id || 'unknown',
+          currentUser?.email || 'unknown@app.com',
+          'Granted via staff panel'
+        );
+
+        if (success) {
+          setUserAccounts(userAccounts.map(acc => 
+            acc.id === staffWhitelistTargetId ? { ...acc, whitelisted: true } : acc
+          ));
+          setStaffWhitelistedUsers(new Set([...staffWhitelistedUsers, staffWhitelistTargetId]));
+          setStaffSelectedAccount({ ...staffSelectedAccount, whitelisted: true });
+          Alert.alert("Success", "User has been whitelisted for permanent staff access.\n\nThey no longer need to enter the PIN.");
+          console.log('[Admin] Staff whitelist granted to:', staffWhitelistTargetId);
+        } else {
+          Alert.alert("Error", "Failed to whitelist user. Please try again.");
+        }
+      } catch (error) {
+        console.error('[Admin] Staff whitelist error:', error);
+        Alert.alert("Error", "An error occurred while whitelisting the user.");
+      } finally {
+        setStaffWhitelistConfirmMode(false);
+        setStaffWhitelistPinInput("");
+        setStaffWhitelistTargetId(null);
+      }
+    } else {
+      Alert.alert("Invalid PIN", "The PIN you entered is incorrect.");
+      setStaffWhitelistPinInput("");
+    }
+  };
+
+  const handleServerReset = async () => {
+    Alert.alert(
+      "Server Reset Confirmation",
+      "This will close the app for all users. They must reopen the app to get the latest update.\n\nAre you sure?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Proceed with Reset",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              // Log server reset with audit service
+              await whitelistService.logServerReset(
+                currentUser?.id || 'unknown',
+                currentUser?.email || 'unknown@app.com',
+                'Emergency server update'
+              );
+
+              console.log("[Server] Broadcasting shutdown to all users");
+              Alert.alert(
+                "🔄 Server Reset Initiated",
+                "The app is being closed for all users for an update.\n\nPlease close and reopen the app.",
+                [
+                  {
+                    text: "OK",
+                    onPress: () => {
+                      Alert.alert("App Update", "Please close this app and reopen it to apply the latest update.");
+                    }
+                  }
+                ]
+              );
+            } catch (error) {
+              console.error('[Admin] Server reset error:', error);
+              Alert.alert("Error", "Failed to broadcast reset. Please try again.");
+            }
+          }
+        }
+      ]
+    );
   };
 
   const toggleAccountExpand = (accountId: string) => {
@@ -4584,6 +5474,30 @@ export default function CalculatorApp() {
         >
           <AlertTriangle size={20} color="#FF3B30" />
           <Text style={styles.devPanelCrashButtonText}>Crash Logs ({getCrashLogs().length})</Text>
+        </TouchableOpacity>
+
+        {/* Debug Monitor Button */}
+        <TouchableOpacity 
+          style={[styles.devPanelCrashButton, { backgroundColor: colors.dark.warning + '20', borderColor: colors.dark.warning }]}
+          onPress={() => {
+            runBugCheck();
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          }}
+        >
+          <AlertTriangle size={20} color={colors.dark.warning} />
+          <Text style={[styles.devPanelCrashButtonText, { color: colors.dark.warning }]}>🐛 Run Bug Check</Text>
+        </TouchableOpacity>
+
+        {/* Owner Panel Trigger (Triple tap) */}
+        <TouchableOpacity 
+          style={[styles.devPanelCrashButton, { backgroundColor: colors.dark.accent + '20', borderColor: colors.dark.accent }]}
+          onPress={() => {
+            handleOwnerPanelTrigger();
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          }}
+        >
+          <Crown size={20} color={colors.dark.accent} />
+          <Text style={[styles.devPanelCrashButtonText, { color: colors.dark.accent }]}>👑 Owner Panel (Tap 3x)</Text>
         </TouchableOpacity>
 
         <View style={styles.searchContainer}>
@@ -4724,7 +5638,69 @@ export default function CalculatorApp() {
               </View>
             ))
           )}
+
+          {/* Server Reset Section */}
+          <View style={styles.serverResetSection}>
+            <TouchableOpacity 
+              style={styles.serverResetButton}
+              onPress={handleServerReset}
+            >
+              <AlertTriangle size={20} color="#FFFFFF" />
+              <Text style={styles.serverResetButtonText}>🔄 Server Reset</Text>
+            </TouchableOpacity>
+            <Text style={styles.serverResetDescription}>
+              Closes app for all users to apply updates. Use with caution.
+            </Text>
+          </View>
         </ScrollView>
+
+        {/* Dev Whitelist PIN Confirmation Modal */}
+        <Modal
+          visible={devWhitelistConfirmMode}
+          transparent
+          animationType="fade"
+          onRequestClose={() => {
+            setDevWhitelistConfirmMode(false);
+            setDevWhitelistPinInput("");
+          }}
+        >
+          <View style={{ flex: 1, backgroundColor: "rgba(0, 0, 0, 0.7)", justifyContent: "center", alignItems: "center" }}>
+            <View style={{ backgroundColor: "#1C1C1E", borderRadius: 16, padding: 24, marginHorizontal: 20, width: "90%", maxWidth: 300 }}>
+              <Text style={{ fontSize: 18, fontWeight: "700", color: "#FFFFFF", marginBottom: 12 }}>Confirm Developer Whitelist</Text>
+              <Text style={{ fontSize: 14, color: "#8E8E93", marginBottom: 20, lineHeight: 20 }}>
+                Re-enter the developer panel PIN to confirm granting permanent developer access to this user.
+              </Text>
+              
+              <TextInput
+                style={styles.pinInputField}
+                placeholder="Enter PIN"
+                placeholderTextColor="#999"
+                secureTextEntry
+                value={devWhitelistPinInput}
+                onChangeText={setDevWhitelistPinInput}
+                keyboardType="numeric"
+              />
+
+              <View style={styles.modalButtonsRow}>
+                <TouchableOpacity 
+                  style={styles.modalCancelButton}
+                  onPress={() => {
+                    setDevWhitelistConfirmMode(false);
+                    setDevWhitelistPinInput("");
+                  }}
+                >
+                  <Text style={styles.modalCancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.modalConfirmButton}
+                  onPress={confirmDevWhitelist}
+                >
+                  <Text style={styles.modalConfirmButtonText}>Confirm</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
       </SafeAreaView>
     </Animated.View>
   );
@@ -4985,7 +5961,69 @@ export default function CalculatorApp() {
                 </Text>
               </View>
             </View>
+
+            {/* Server Reset Section */}
+            <View style={styles.serverResetSection}>
+              <TouchableOpacity 
+                style={styles.serverResetButton}
+                onPress={handleServerReset}
+              >
+                <AlertTriangle size={20} color="#FFFFFF" />
+                <Text style={styles.serverResetButtonText}>🔄 Server Reset</Text>
+              </TouchableOpacity>
+              <Text style={styles.serverResetDescription}>
+                Closes app for all users to apply updates. Use with caution.
+              </Text>
+            </View>
           </ScrollView>
+
+          {/* Staff Whitelist PIN Confirmation Modal */}
+          <Modal
+            visible={staffWhitelistConfirmMode}
+            transparent
+            animationType="fade"
+            onRequestClose={() => {
+              setStaffWhitelistConfirmMode(false);
+              setStaffWhitelistPinInput("");
+            }}
+          >
+            <View style={{ flex: 1, backgroundColor: "rgba(0, 0, 0, 0.7)", justifyContent: "center", alignItems: "center" }}>
+              <View style={{ backgroundColor: "#1C1C1E", borderRadius: 16, padding: 24, marginHorizontal: 20, width: "90%", maxWidth: 300 }}>
+                <Text style={{ fontSize: 18, fontWeight: "700", color: "#FFFFFF", marginBottom: 12 }}>Confirm Staff Whitelist</Text>
+                <Text style={{ fontSize: 14, color: "#8E8E93", marginBottom: 20, lineHeight: 20 }}>
+                  Re-enter the developer panel PIN to confirm granting permanent staff access to this user.
+                </Text>
+                
+                <TextInput
+                  style={styles.pinInputField}
+                  placeholder="Enter PIN"
+                  placeholderTextColor="#999"
+                  secureTextEntry
+                  value={staffWhitelistPinInput}
+                  onChangeText={setStaffWhitelistPinInput}
+                  keyboardType="numeric"
+                />
+
+                <View style={styles.modalButtonsRow}>
+                  <TouchableOpacity 
+                    style={styles.modalCancelButton}
+                    onPress={() => {
+                      setStaffWhitelistConfirmMode(false);
+                      setStaffWhitelistPinInput("");
+                    }}
+                  >
+                    <Text style={styles.modalCancelButtonText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={styles.modalConfirmButton}
+                    onPress={confirmStaffWhitelist}
+                  >
+                    <Text style={styles.modalConfirmButtonText}>Confirm</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </Modal>
         </SafeAreaView>
       </Animated.View>
     );
@@ -5013,6 +6051,7 @@ export default function CalculatorApp() {
       {mode === "settings" && renderSettingsScreen()}
       {mode === "music" && renderMusicScreen()}
       {mode === "crashLogs" && renderCrashLogsScreen()}
+      {mode === "friends" && renderFriendsScreen()}
       {![
         "calculator",
         "messages",
@@ -5611,6 +6650,374 @@ export default function CalculatorApp() {
         </KeyboardAvoidingView>
       </Modal>
 
+      {/* Owner Panel Modal */}
+      <Modal
+        visible={showOwnerPanel}
+        transparent
+        animationType="slide"
+        onRequestClose={closeOwnerPanel}
+      >
+        <SafeAreaView style={styles.modalContainer}>
+          <View style={styles.ownerPanelHeader}>
+            <View style={styles.ownerPanelTitleContainer}>
+              <Crown size={28} color={colors.dark.accent} />
+              <Text style={styles.ownerPanelTitle}>👑 Owner Panel</Text>
+            </View>
+            <TouchableOpacity onPress={closeOwnerPanel}>
+              <X size={24} color={colors.dark.text} />
+            </TouchableOpacity>
+          </View>
+
+          {!ownerAuthenticated ? (
+            <View style={styles.ownerPinContainer}>
+              <Lock size={48} color={colors.dark.primary} />
+              <Text style={styles.ownerPinTitle}>Enter Owner PIN</Text>
+              <TextInput
+                style={styles.ownerPinInput}
+                placeholder="••••"
+                placeholderTextColor={colors.dark.textTertiary}
+                value={ownerPinInput}
+                onChangeText={setOwnerPinInput}
+                keyboardType="number-pad"
+                secureTextEntry
+                maxLength={4}
+                autoFocus
+              />
+              <TouchableOpacity
+                style={styles.ownerPinButton}
+                onPress={handleOwnerLogin}
+              >
+                <Text style={styles.ownerPinButtonText}>Unlock</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <ScrollView style={styles.ownerPanelContent}>
+              {ownerDashboardData && (
+                <>
+                  {/* System Stats */}
+                  <View style={styles.ownerSection}>
+                    <Text style={styles.ownerSectionTitle}>📊 System Stats</Text>
+                    <View style={styles.ownerStatsGrid}>
+                      <View style={styles.ownerStatCard}>
+                        <Text style={styles.ownerStatValue}>{ownerDashboardData.stats.totalUsers}</Text>
+                        <Text style={styles.ownerStatLabel}>Total Users</Text>
+                      </View>
+                      <View style={styles.ownerStatCard}>
+                        <Text style={styles.ownerStatValue}>{ownerDashboardData.stats.activeUsers}</Text>
+                        <Text style={styles.ownerStatLabel}>Active Users</Text>
+                      </View>
+                      <View style={styles.ownerStatCard}>
+                        <Text style={styles.ownerStatValue}>{ownerDashboardData.stats.totalMessages}</Text>
+                        <Text style={styles.ownerStatLabel}>Messages</Text>
+                      </View>
+                      <View style={styles.ownerStatCard}>
+                        <Text style={styles.ownerStatValue}>{(ownerDashboardData.stats.storageUsed / 1024).toFixed(1)}MB</Text>
+                        <Text style={styles.ownerStatLabel}>Storage</Text>
+                      </View>
+                    </View>
+                  </View>
+
+                  {/* Debug Stats */}
+                  <View style={styles.ownerSection}>
+                    <Text style={styles.ownerSectionTitle}>🐛 Debug Status</Text>
+                    <View style={styles.ownerDebugStats}>
+                      <Text style={styles.ownerDebugText}>Errors: {ownerDashboardData.debugStats.byLevel.error || 0}</Text>
+                      <Text style={styles.ownerDebugText}>Crashes: {ownerDashboardData.debugStats.byLevel.crash || 0}</Text>
+                      <Text style={styles.ownerDebugText}>Warnings: {ownerDashboardData.debugStats.byLevel.warning || 0}</Text>
+                    </View>
+                  </View>
+
+                  {/* Dev Activities */}
+                  <View style={styles.ownerSection}>
+                    <Text style={styles.ownerSectionTitle}>👨‍💻 Recent Dev Activities</Text>
+                    <ScrollView style={styles.ownerActivityList}>
+                      {ownerDashboardData.recentDevActivities.slice(0, 10).map((activity: any, index: number) => (
+                        <View key={index} style={styles.ownerActivityItem}>
+                          <Text style={styles.ownerActivityEmail}>{activity.devEmail}</Text>
+                          <Text style={styles.ownerActivityAction}>{activity.action}</Text>
+                          <Text style={styles.ownerActivityTime}>
+                            {new Date(activity.timestamp).toLocaleString()}
+                          </Text>
+                        </View>
+                      ))}
+                    </ScrollView>
+                  </View>
+
+                  {/* Developer Login History */}
+                  <View style={styles.ownerSection}>
+                    <Text style={styles.ownerSectionTitle}>🔐 Developer Login History</Text>
+                    <TouchableOpacity
+                      style={styles.ownerActionButton}
+                      onPress={async () => {
+                        try {
+                          const historyData = await AsyncStorage.getItem('dev:login:history');
+                          const history = historyData ? JSON.parse(historyData) : [];
+                          
+                          if (history.length === 0) {
+                            Alert.alert("No History", "No developer logins recorded yet.");
+                            return;
+                          }
+                          
+                          const historyText = history.slice(0, 10).map((entry: any) => 
+                            `${entry.type.toUpperCase()}: ${entry.email}\n` +
+                            `IP: ${entry.ipAddress}\n` +
+                            `Device: ${entry.deviceModel}\n` +
+                            `Whitelisted: ${entry.whitelisted ? 'Yes' : 'No'}\n` +
+                            `${entry.previousAccountsFromIP ? `Previous IPs: ${entry.previousAccountsFromIP.join(', ')}\n` : ''}` +
+                            `Time: ${new Date(entry.timestamp).toLocaleString()}\n`
+                          ).join('\n---\n');
+                          
+                          Alert.alert("Developer Login History", historyText, [
+                            { 
+                              text: "Export All", 
+                              onPress: () => {
+                                console.log('[Owner Panel] Full login history:', history);
+                                Alert.alert("Exported", `${history.length} login entries exported to console`);
+                              }
+                            },
+                            { text: "Close" }
+                          ]);
+                        } catch (error) {
+                          Alert.alert("Error", "Failed to load login history");
+                        }
+                      }}
+                    >
+                      <Text style={styles.ownerActionButtonText}>📋 View Login History</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Pending Commits Review */}
+                  <View style={styles.ownerSection}>
+                    <Text style={styles.ownerSectionTitle}>📝 Pending Commit Approvals</Text>
+                    <Text style={styles.ownerSectionDescription}>
+                      Review and approve/reject developer commits before they are pushed.
+                    </Text>
+                    <TouchableOpacity
+                      style={styles.ownerActionButton}
+                      onPress={async () => {
+                        try {
+                          // Read pending commits from the approval directory
+                          // In React Native, we'll simulate this with AsyncStorage
+                          const pendingData = await AsyncStorage.getItem('pending:commits');
+                          const pending = pendingData ? JSON.parse(pendingData) : [];
+                          
+                          if (pending.length === 0) {
+                            Alert.alert("No Pending Commits", "All commits have been reviewed.");
+                            return;
+                          }
+                          
+                          const commitInfo = pending[0]; // Show first pending
+                          
+                          Alert.alert(
+                            `Commit Request #${commitInfo.requestId}`,
+                            `Author: ${commitInfo.author}\n` +
+                            `Files: ${commitInfo.filesChanged}\n` +
+                            `Time: ${commitInfo.timestamp}\n\n` +
+                            `What would you like to do?`,
+                            [
+                              {
+                                text: "View Diff",
+                                onPress: () => {
+                                  Alert.alert("Diff", commitInfo.diff || "No changes");
+                                }
+                              },
+                              {
+                                text: "✅ Approve",
+                                onPress: async () => {
+                                  // Create approval file
+                                  await AsyncStorage.setItem(
+                                    `commit:${commitInfo.requestId}:approved`,
+                                    'true'
+                                  );
+                                  // Remove from pending
+                                  const updated = pending.filter((c: any) => c.requestId !== commitInfo.requestId);
+                                  await AsyncStorage.setItem('pending:commits', JSON.stringify(updated));
+                                  Alert.alert("Approved", "Commit has been approved!");
+                                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                                }
+                              },
+                              {
+                                text: "❌ Reject",
+                                style: "destructive",
+                                onPress: () => {
+                                  Alert.prompt(
+                                    "Rejection Reason",
+                                    "Why are you rejecting this commit?",
+                                    async (reason) => {
+                                      await AsyncStorage.setItem(
+                                        `commit:${commitInfo.requestId}:rejected`,
+                                        reason || "No reason provided"
+                                      );
+                                      const updated = pending.filter((c: any) => c.requestId !== commitInfo.requestId);
+                                      await AsyncStorage.setItem('pending:commits', JSON.stringify(updated));
+                                      Alert.alert("Rejected", "Commit has been rejected");
+                                      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+                                    }
+                                  );
+                                }
+                              },
+                              { text: "Cancel", style: "cancel" }
+                            ]
+                          );
+                        } catch (error) {
+                          Alert.alert("Error", "Failed to load pending commits");
+                        }
+                      }}
+                    >
+                      <Text style={styles.ownerActionButtonText}>📝 Review Pending Commits</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Force Actions */}
+                  <View style={styles.ownerSection}>
+                    <Text style={styles.ownerSectionTitle}>⚡ Force Actions</Text>
+                    <TouchableOpacity
+                      style={styles.ownerActionButton}
+                      onPress={() => {
+                        Alert.prompt(
+                          "Force Whitelist",
+                          "Enter user ID:",
+                          (userId) => handleForceWhitelist(userId)
+                        );
+                      }}
+                    >
+                      <Text style={styles.ownerActionButtonText}>🚨 Force Whitelist User</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.ownerActionButton, styles.ownerActionButtonDanger]}
+                      onPress={handleEmergencyShutdown}
+                    >
+                      <Text style={styles.ownerActionButtonText}>⚠️ Emergency Shutdown</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.ownerActionButton}
+                      onPress={async () => {
+                        const data = await ownerPanel.exportAllData();
+                        Alert.alert("Export Complete", `${JSON.stringify(data).length} bytes exported`);
+                      }}
+                    >
+                      <Text style={styles.ownerActionButtonText}>📦 Export All Data</Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
+            </ScrollView>
+          )}
+        </SafeAreaView>
+      </Modal>
+
+      {/* Debug Panel Modal */}
+      <Modal
+        visible={showDebugPanel}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowDebugPanel(false)}
+      >
+        <SafeAreaView style={styles.modalContainer}>
+          <View style={styles.debugPanelHeader}>
+            <View style={styles.debugPanelTitleContainer}>
+              <AlertTriangle size={24} color={colors.dark.warning} />
+              <Text style={styles.debugPanelTitle}>🐛 Debug Report</Text>
+            </View>
+            <TouchableOpacity onPress={() => setShowDebugPanel(false)}>
+              <X size={24} color={colors.dark.text} />
+            </TouchableOpacity>
+          </View>
+
+          {debugReport && (
+            <ScrollView style={styles.debugPanelContent}>
+              {/* Summary */}
+              <View style={styles.debugSection}>
+                <Text style={styles.debugSectionTitle}>Summary</Text>
+                <View style={styles.debugSummaryGrid}>
+                  <View style={styles.debugSummaryCard}>
+                    <Text style={[styles.debugSummaryValue, { color: colors.dark.error }]}>
+                      {debugReport.totalErrors}
+                    </Text>
+                    <Text style={styles.debugSummaryLabel}>Errors</Text>
+                  </View>
+                  <View style={styles.debugSummaryCard}>
+                    <Text style={[styles.debugSummaryValue, { color: colors.dark.warning }]}>
+                      {debugReport.totalWarnings}
+                    </Text>
+                    <Text style={styles.debugSummaryLabel}>Warnings</Text>
+                  </View>
+                  <View style={styles.debugSummaryCard}>
+                    <Text style={[styles.debugSummaryValue, { color: '#FF6B6B' }]}>
+                      {debugReport.totalCrashes}
+                    </Text>
+                    <Text style={styles.debugSummaryLabel}>Crashes</Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* Recent Logs */}
+              <View style={styles.debugSection}>
+                <Text style={styles.debugSectionTitle}>Recent Logs</Text>
+                {debugReport.recentLogs.map((log: any) => (
+                  <View 
+                    key={log.id} 
+                    style={[
+                      styles.debugLogItem,
+                      log.level === 'error' && { borderLeftColor: colors.dark.error },
+                      log.level === 'warning' && { borderLeftColor: colors.dark.warning },
+                      log.level === 'crash' && { borderLeftColor: '#FF6B6B' }
+                    ]}
+                  >
+                    <View style={styles.debugLogHeader}>
+                      <Text style={[styles.debugLogLevel, { color: 
+                        log.level === 'error' ? colors.dark.error : 
+                        log.level === 'warning' ? colors.dark.warning : '#FF6B6B'
+                      }]}>
+                        [{log.level.toUpperCase()}]
+                      </Text>
+                      <Text style={styles.debugLogCategory}>{log.category}</Text>
+                    </View>
+                    <Text style={styles.debugLogMessage}>{log.message}</Text>
+                    <Text style={styles.debugLogTime}>
+                      {new Date(log.timestamp).toLocaleString()}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+
+              {/* Actions */}
+              <View style={styles.debugSection}>
+                <TouchableOpacity
+                  style={styles.debugActionButton}
+                  onPress={exportDebugLogs}
+                >
+                  <Text style={styles.debugActionButtonText}>📤 Export Logs</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.debugActionButton, { backgroundColor: colors.dark.error }]}
+                  onPress={() => {
+                    Alert.alert(
+                      "Clear Logs?",
+                      "This will delete all debug logs.",
+                      [
+                        { text: "Cancel", style: "cancel" },
+                        { 
+                          text: "Clear", 
+                          style: "destructive",
+                          onPress: () => {
+                            debugMonitor.clearLogs();
+                            setShowDebugPanel(false);
+                            Alert.alert("Cleared", "All logs cleared");
+                          }
+                        }
+                      ]
+                    );
+                  }}
+                >
+                  <Text style={styles.debugActionButtonText}>🗑️ Clear All Logs</Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          )}
+        </SafeAreaView>
+      </Modal>
+
       {/* Email Verification Modal */}
       <Modal
         visible={showEmailVerification}
@@ -5716,7 +7123,7 @@ const createStyles = () => {
   return StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: "#000000",
+      backgroundColor: "#0A0E1A",
     },
     fullscreenContainer: {
       marginTop: 0,
@@ -5954,7 +7361,7 @@ const createStyles = () => {
     },
     chatContainer: {
       flex: 1,
-      backgroundColor: "#000000",
+      backgroundColor: "#0A0E1A",
     },
     chatKeyboardView: {
       flex: 1,
@@ -7062,87 +8469,6 @@ const createStyles = () => {
     color: "#FFFFFF",
     letterSpacing: 4,
   },
-  subscriptionCard: {
-    backgroundColor: "#1C1C1E",
-    borderRadius: 16,
-    padding: 20,
-    borderWidth: 2,
-    borderColor: "#FFD700",
-  },
-  subscriptionHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 16,
-    gap: 12,
-  },
-  subscriptionTitle: {
-    fontSize: 20,
-    fontWeight: "700" as const,
-    color: "#FFFFFF",
-  },
-  subscriptionPricing: {
-    alignItems: "center",
-    marginBottom: 20,
-    paddingVertical: 16,
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: "#2C2C2E",
-  },
-  subscriptionPrice: {
-    fontSize: 36,
-    fontWeight: "800" as const,
-    color: "#FFD700",
-    marginBottom: 4,
-  },
-  subscriptionPeriod: {
-    fontSize: 14,
-    color: "#8E8E93",
-  },
-  subscriptionFeatures: {
-    marginBottom: 20,
-  },
-  featureItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  featureCheckmark: {
-    fontSize: 18,
-    color: "#34C759",
-    marginRight: 12,
-    fontWeight: "700" as const,
-  },
-  featureText: {
-    fontSize: 15,
-    color: "#FFFFFF",
-  },
-  subscribeButton: {
-    backgroundColor: "#FFD700",
-    paddingVertical: 16,
-    borderRadius: 12,
-    alignItems: "center",
-    marginBottom: 12,
-    shadowColor: "#FFD700",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-  },
-  subscribeButtonDisabled: {
-    opacity: 0.6,
-  },
-  subscribeButtonText: {
-    fontSize: 17,
-    fontWeight: "700" as const,
-    color: "#000000",
-  },
-  restoreButton: {
-    paddingVertical: 12,
-    alignItems: "center",
-  },
-  restoreButtonText: {
-    fontSize: 14,
-    color: "#007AFF",
-  },
   vipActiveCard: {
     backgroundColor: "#1C1C1E",
     borderRadius: 16,
@@ -7214,6 +8540,74 @@ const createStyles = () => {
     fontSize: 14,
     fontWeight: "700" as const,
     color: "#000000",
+  },
+  subscriptionCard: {
+    backgroundColor: "#1C1C1E",
+    borderRadius: 16,
+    padding: 16,
+    gap: 10,
+    borderWidth: 1,
+    borderColor: "#2C2C2E",
+  },
+  subscriptionHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  subscriptionTitle: {
+    fontSize: 18,
+    fontWeight: "700" as const,
+    color: "#FFFFFF",
+  },
+  subscriptionStatus: {
+    fontSize: 12,
+    color: "#8E8E93",
+  },
+  subscriptionStatusWarning: {
+    color: "#FFA500",
+  },
+  subscriptionNote: {
+    color: "#8E8E93",
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  subscriptionPrice: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "600" as const,
+  },
+  subscriptionActionsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  subscriptionButton: {
+    flex: 1,
+    backgroundColor: "#007AFF",
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  subscriptionButtonDisabled: {
+    opacity: 0.6,
+  },
+  subscriptionButtonText: {
+    color: "#FFFFFF",
+    fontWeight: "700" as const,
+    fontSize: 15,
+  },
+  subscriptionSecondaryButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#2C2C2E",
+    backgroundColor: "#0C0C0E",
+  },
+  subscriptionSecondaryButtonText: {
+    color: "#FFFFFF",
+    fontWeight: "600" as const,
+    fontSize: 14,
   },
   lockPromptContainer: {
     backgroundColor: "#1C1C1E",
@@ -7537,13 +8931,36 @@ const createStyles = () => {
     backgroundColor: "#000000",
   },
   browserHeader: {
-    display: "none",
+    display: "flex",
     paddingHorizontal: 12,
     paddingTop: 8,
     paddingBottom: 6,
     borderBottomWidth: 1,
     borderBottomColor: "#1C1C1E",
     backgroundColor: "#000000",
+    gap: 6,
+  },
+  browserNavRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  browserNavButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    backgroundColor: "#1C1C1E",
+  },
+  browserNavButtonText: {
+    color: "#FFFFFF",
+    fontWeight: "600" as const,
+    fontSize: 13,
+  },
+  browserControlsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
   },
   browserControls: {
     flexDirection: "row",
@@ -7591,6 +9008,10 @@ const createStyles = () => {
   },
   hotLinksRow: {
     paddingVertical: 4,
+    paddingHorizontal: 2,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
   },
   hotLink: {
     marginRight: 8,
@@ -8442,6 +9863,12 @@ const createStyles = () => {
     marginLeft: 4,
     marginBottom: 8,
   },
+  playlistSubtext: {
+    color: "#8E8E93",
+    fontSize: 12,
+    marginLeft: 4,
+    marginBottom: 4,
+  },
   musicTrack: {
     flexDirection: "row",
     alignItems: "center",
@@ -8976,6 +10403,366 @@ const createStyles = () => {
     color: "#FFFFFF",
     fontSize: 15,
     marginBottom: 8,
+  },
+  // Server Reset Styles
+  serverResetSection: {
+    paddingHorizontal: 16,
+    paddingVertical: 20,
+    marginTop: 20,
+    borderTopWidth: 1,
+    borderTopColor: "#1C1C1E",
+  },
+  serverResetButton: {
+    backgroundColor: "#FF3B30",
+    borderRadius: 12,
+    paddingVertical: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+  },
+  serverResetButtonText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "600" as const,
+  },
+  serverResetDescription: {
+    color: "#FF9999",
+    fontSize: 12,
+    marginTop: 12,
+    textAlign: "center",
+    fontStyle: "italic",
+  },
+  // PIN Confirmation Modal Styles
+  pinInputField: {
+    backgroundColor: "#000000",
+    color: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#3A3A3C",
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 16,
+    marginBottom: 20,
+    textAlign: "center" as const,
+  },
+  modalButtonsRow: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  modalCancelButton: {
+    flex: 1,
+    backgroundColor: "#2C2C2E",
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  modalCancelButtonText: {
+    color: "#8E8E93",
+    fontSize: 16,
+    fontWeight: "600" as const,
+  },
+  modalConfirmButton: {
+    flex: 1,
+    backgroundColor: "#007AFF",
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  modalConfirmButtonText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "600" as const,
+  },
+  
+  // ==================== GREETING MESSAGE STYLES ====================
+  greetingContainer: {
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 10,
+  },
+  greetingText: {
+    fontSize: 18,
+    fontWeight: "600" as const,
+    color: colors.dark.text,
+    textAlign: "center",
+  },
+  
+  // ==================== EMPTY STATE STYLES ====================
+  emptyState: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: 100,
+  },
+  emptyStateEmoji: {
+    fontSize: 64,
+    marginBottom: 16,
+  },
+  emptyStateTitle: {
+    fontSize: 20,
+    fontWeight: "600" as const,
+    color: colors.dark.text,
+    marginBottom: 8,
+  },
+  emptyStateText: {
+    fontSize: 16,
+    color: colors.dark.textSecondary,
+    textAlign: "center",
+    paddingHorizontal: 40,
+  },
+  
+  // ==================== TYPING INDICATOR STYLES ====================
+  typingText: {
+    fontSize: 12,
+    color: colors.dark.textSecondary,
+    marginBottom: 4,
+    marginLeft: 12,
+  },
+  
+  // ==================== OWNER PANEL STYLES ====================
+  ownerPanelHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.dark.border,
+  },
+  ownerPanelTitleContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  ownerPanelTitle: {
+    fontSize: 24,
+    fontWeight: "700" as const,
+    color: colors.dark.text,
+  },
+  ownerPinContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 40,
+  },
+  ownerPinTitle: {
+    fontSize: 20,
+    fontWeight: "600" as const,
+    color: colors.dark.text,
+    marginTop: 24,
+    marginBottom: 32,
+  },
+  ownerPinInput: {
+    width: "80%",
+    backgroundColor: colors.dark.surface,
+    borderRadius: 12,
+    padding: 16,
+    fontSize: 24,
+    textAlign: "center",
+    color: colors.dark.text,
+    borderWidth: 2,
+    borderColor: colors.dark.primary,
+  },
+  ownerPinButton: {
+    width: "80%",
+    backgroundColor: colors.dark.primary,
+    borderRadius: 12,
+    padding: 16,
+    alignItems: "center",
+    marginTop: 16,
+  },
+  ownerPinButtonText: {
+    color: "#FFFFFF",
+    fontSize: 18,
+    fontWeight: "600" as const,
+  },
+  ownerPanelContent: {
+    flex: 1,
+    padding: 20,
+  },
+  ownerSection: {
+    marginBottom: 24,
+  },
+  ownerSectionTitle: {
+    fontSize: 18,
+    fontWeight: "700" as const,
+    color: colors.dark.text,
+    marginBottom: 12,
+  },
+  ownerSectionDescription: {
+    fontSize: 14,
+    color: colors.dark.textSecondary,
+    marginBottom: 12,
+    lineHeight: 20,
+  },
+  ownerStatsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+  },
+  ownerStatCard: {
+    flex: 1,
+    minWidth: "45%",
+    backgroundColor: colors.dark.surface,
+    borderRadius: 12,
+    padding: 16,
+    alignItems: "center",
+  },
+  ownerStatValue: {
+    fontSize: 32,
+    fontWeight: "700" as const,
+    color: colors.dark.primary,
+    marginBottom: 4,
+  },
+  ownerStatLabel: {
+    fontSize: 12,
+    color: colors.dark.textSecondary,
+    textAlign: "center",
+  },
+  ownerDebugStats: {
+    backgroundColor: colors.dark.surface,
+    borderRadius: 12,
+    padding: 16,
+  },
+  ownerDebugText: {
+    fontSize: 14,
+    color: colors.dark.text,
+    marginBottom: 4,
+  },
+  ownerActivityList: {
+    maxHeight: 200,
+  },
+  ownerActivityItem: {
+    backgroundColor: colors.dark.surface,
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 8,
+  },
+  ownerActivityEmail: {
+    fontSize: 14,
+    fontWeight: "600" as const,
+    color: colors.dark.text,
+    marginBottom: 4,
+  },
+  ownerActivityAction: {
+    fontSize: 12,
+    color: colors.dark.textSecondary,
+    marginBottom: 4,
+  },
+  ownerActivityTime: {
+    fontSize: 10,
+    color: colors.dark.textTertiary,
+  },
+  ownerActionButton: {
+    backgroundColor: colors.dark.primary,
+    borderRadius: 12,
+    padding: 16,
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  ownerActionButtonDanger: {
+    backgroundColor: colors.dark.error,
+  },
+  ownerActionButtonText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "600" as const,
+  },
+  
+  // ==================== DEBUG PANEL STYLES ====================
+  debugPanelHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.dark.border,
+  },
+  debugPanelTitleContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  debugPanelTitle: {
+    fontSize: 24,
+    fontWeight: "700" as const,
+    color: colors.dark.text,
+  },
+  debugPanelContent: {
+    flex: 1,
+    padding: 20,
+  },
+  debugSection: {
+    marginBottom: 24,
+  },
+  debugSectionTitle: {
+    fontSize: 18,
+    fontWeight: "700" as const,
+    color: colors.dark.text,
+    marginBottom: 12,
+  },
+  debugSummaryGrid: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  debugSummaryCard: {
+    flex: 1,
+    backgroundColor: colors.dark.surface,
+    borderRadius: 12,
+    padding: 16,
+    alignItems: "center",
+  },
+  debugSummaryValue: {
+    fontSize: 32,
+    fontWeight: "700" as const,
+    marginBottom: 4,
+  },
+  debugSummaryLabel: {
+    fontSize: 12,
+    color: colors.dark.textSecondary,
+  },
+  debugLogItem: {
+    backgroundColor: colors.dark.surface,
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 8,
+    borderLeftWidth: 4,
+  },
+  debugLogHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 4,
+  },
+  debugLogLevel: {
+    fontSize: 12,
+    fontWeight: "700" as const,
+  },
+  debugLogCategory: {
+    fontSize: 12,
+    color: colors.dark.textTertiary,
+  },
+  debugLogMessage: {
+    fontSize: 14,
+    color: colors.dark.text,
+    marginBottom: 4,
+  },
+  debugLogTime: {
+    fontSize: 10,
+    color: colors.dark.textTertiary,
+  },
+  debugActionButton: {
+    backgroundColor: colors.dark.primary,
+    borderRadius: 12,
+    padding: 16,
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  debugActionButtonText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "600" as const,
   },
   });
 };

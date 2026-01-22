@@ -35,6 +35,7 @@ import * as WebBrowser from 'expo-web-browser';
 import * as AuthSession from 'expo-auth-session';
 import { Audio } from 'expo-av';
 import { signalWireService } from '../services/signalwire';
+import * as Updates from 'expo-updates';
 import { getAIResponse, ChatMessage } from '../services/ai';
 import { realtimeService, CrashLog, reportCrash, reportPresence, reportAccountEvent, getCrashLogs, clearCrashLogs } from '../services/realtime';
 import { musicService, MusicTrack } from '../services/music';
@@ -505,6 +506,9 @@ export default function CalculatorApp() {
     // Start debug monitoring
     debugMonitor.startMonitoring();
     console.log('[Debug Monitor] Started monitoring');
+      // Check for OTA updates
+      checkForUpdates();
+    
     
     // Start auto maintenance service
     autoMaintenance.start(30, 24).catch(err => {
@@ -532,6 +536,77 @@ export default function CalculatorApp() {
       autoMaintenance.stop();
     };
   }, [currentUser]);
+  // Check for OTA updates
+  const checkForUpdates = async () => {
+    if (Platform.OS === 'web') return;
+    if (!Updates.isEnabled) {
+      console.log('[Updates] OTA updates not enabled in this build');
+      return;
+    }
+
+    try {
+      console.log('[Updates] Checking for updates...');
+      const update = await Updates.checkForUpdateAsync();
+      
+      if (update.isAvailable) {
+        console.log('[Updates] Update available! Downloading...');
+        
+        Alert.alert(
+          '🎉 Update Available',
+          'A new version of Cruzer is available with exciting new features and improvements. Would you like to update now?',
+          [
+            {
+              text: 'Later',
+              style: 'cancel',
+              onPress: () => console.log('[Updates] User chose to update later')
+            },
+            {
+              text: 'Update Now',
+              onPress: async () => {
+                try {
+                  await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                  
+                  Alert.alert(
+                    '⬇️ Downloading Update',
+                    'Downloading the latest version... This will only take a moment.',
+                    [{ text: 'OK' }]
+                  );
+                  
+                  await Updates.fetchUpdateAsync();
+                  
+                  Alert.alert(
+                    '✅ Update Ready',
+                    'The update has been downloaded. Restart the app to apply the new version.',
+                    [
+                      {
+                        text: 'Restart Now',
+                        onPress: async () => {
+                          await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                          await Updates.reloadAsync();
+                        }
+                      }
+                    ]
+                  );
+                } catch (error) {
+                  console.error('[Updates] Failed to download update:', error);
+                  Alert.alert(
+                    'Update Failed',
+                    'Failed to download the update. Please try again later.',
+                    [{ text: 'OK' }]
+                  );
+                }
+              }
+            }
+          ]
+        );
+      } else {
+        console.log('[Updates] App is up to date');
+      }
+    } catch (error) {
+      console.error('[Updates] Error checking for updates:', error);
+    }
+  };
+
 
   // Initialize audio mode to allow recording
   useEffect(() => {

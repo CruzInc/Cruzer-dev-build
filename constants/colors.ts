@@ -10,21 +10,21 @@ const successGreen = "#5FD97A"; // Friendly green
 const warningYellow = "#FFD65A"; // Soft yellow
 const errorRed = "#FF6B6B"; // Gentle red
 
-// Background Colors - Cozy Dark Theme
-const darkBackground = "#0A0E1A"; // Deep navy (less harsh than pure black)
-const cardBackground = "#1A1F2E"; // Soft card background
-const surfaceBackground = "#252B3D"; // Elevated surface
-const borderColor = "#2D3548"; // Subtle borders
+// Background Colors - True Black Theme (Default)
+const darkBackground = "#000000"; // Pure black (default)
+const cardBackground = "#0A0A0A"; // Slightly lighter black
+const surfaceBackground = "#121212"; // Elevated surface
+const borderColor = "#1A1A1A"; // Subtle borders
 
 // Text Colors - High Readability
 const textPrimary = "#F5F7FA"; // Almost white
 const textSecondary = "#B4BDD1"; // Softer gray
 const textTertiary = "#8891A8"; // Muted gray
 
-// Messaging Colors - Cozy Chat Experience
+// Messaging Colors - Pure Black Chat Experience (Default)
 const messageBubbleSent = "#5E9FFF"; // Your messages (warm blue)
-const messageBubbleReceived = "#2D3548"; // Received messages (dark gray)
-const chatBackground = "#0F1420"; // Slightly lighter than main background
+const messageBubbleReceived = "#1A1A1A"; // Received messages (dark)
+const chatBackground = "#000000"; // Pure black background (default)
 
 export default {
   // Light mode (for future use)

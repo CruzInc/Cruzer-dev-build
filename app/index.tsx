@@ -233,7 +233,11 @@ export default function CalculatorApp() {
   const [shouldResetDisplay, setShouldResetDisplay] = useState<boolean>(false);
   
   // ==================== UI & NAVIGATION STATE ====================
-  const [mode, setMode] = useState<CalculatorMode>("calculator");
+  const [mode, setMode] = useState<CalculatorMode>(() => {
+    // If user preference is to disable calculator and we have a current user, start at messages
+    // This will be updated after persistence loads
+    return "calculator";
+  });
   const [fadeAnim] = useState(new Animated.Value(1));
   
   // ==================== MESSAGING STATE ====================
@@ -251,6 +255,7 @@ export default function CalculatorApp() {
   const effectAnimations = useRef<{ [key: string]: { scale: Animated.Value; opacity: Animated.Value; translateY: Animated.Value } }>({}).current;
   const [showSettings, setShowSettings] = useState<boolean>(false);
   const [keepMessages, setKeepMessages] = useState<boolean>(true);
+  const [disableCalculator, setDisableCalculator] = useState<boolean>(false);
   const [contactInfo, setContactInfo] = useState<ContactInfo>({
     name: "Contact",
     phone: "",
@@ -276,7 +281,7 @@ export default function CalculatorApp() {
   const [showContactInfo, setShowContactInfo] = useState<boolean>(false);
   const [isEditingContactInfo, setIsEditingContactInfo] = useState<boolean>(false);
   const [tempContactInfo, setTempContactInfo] = useState<ContactInfo>(contactInfo);
-  const [chatBackgroundColor, setChatBackgroundColor] = useState<string>("#0F1420");
+  const [chatBackgroundColor, setChatBackgroundColor] = useState<string>("#000000");
   const [chatBackgroundImage, setChatBackgroundImage] = useState<string | undefined>(undefined);
   const [longPressedMessage, setLongPressedMessage] = useState<string | null>(null);
   const [showMessageActions, setShowMessageActions] = useState<boolean>(false);
@@ -289,7 +294,7 @@ export default function CalculatorApp() {
   const [chatSearchIndex, setChatSearchIndex] = useState<number>(0);
   const swipeRefs = useRef<Record<string, Swipeable | null>>({}).current;
   const messageLayoutY = useRef<Record<string, number>>({}).current;
-  const [messagingAppColor, setMessagingAppColor] = useState<string>("#5E9FFF");
+  const [messagingAppColor, setMessagingAppColor] = useState<string>("#000000");
   const glitchAnim = useRef(new Animated.Value(0)).current;
   const [contacts, setContacts] = useState<ChatContact[]>([
     {
@@ -762,7 +767,14 @@ export default function CalculatorApp() {
         const stored = await AsyncStorage.getItem(PERSIST_KEY);
         if (stored) {
           const data = JSON.parse(stored);
+          // User & Auth
           if (data.userAccounts) setUserAccounts(data.userAccounts.map((u: any) => ({ ...u, lastLogin: new Date(u.lastLogin) })));
+          if (data.currentUserId && data.userAccounts) {
+            const user = data.userAccounts.find((u: any) => u.id === data.currentUserId);
+            if (user) setCurrentUser({ ...user, lastLogin: new Date(user.lastLogin) });
+          }
+          
+          // Messaging
           if (data.contacts) setContacts(data.contacts.map((c: any) => ({ ...c, timestamp: new Date(c.timestamp) })));
           if (data.messages) setMessages(data.messages.map((m: any) => ({ ...m, timestamp: new Date(m.timestamp) })));
           if (data.aiMessages) setAiMessages(data.aiMessages.map((m: any) => ({ ...m, timestamp: new Date(m.timestamp) })));
@@ -771,15 +783,43 @@ export default function CalculatorApp() {
             timestamp: new Date(c.timestamp),
             messages: c.messages.map((m: any) => ({ ...m, timestamp: new Date(m.timestamp) }))
           })));
+          
+          // Communication
           if (data.callLogs) setCallLogs(data.callLogs.map((l: any) => ({ ...l, timestamp: new Date(l.timestamp) })));
-          if (data.currentUserId && data.userAccounts) {
-            const user = data.userAccounts.find((u: any) => u.id === data.currentUserId);
-            if (user) setCurrentUser({ ...user, lastLogin: new Date(user.lastLogin) });
-          }
-          if (data.musicTracks) setMusicPlayerState(prev => ({ ...prev, tracks: data.musicTracks }));
+          
+          // Appearance & Settings
           if (data.chatBackgroundColor) setChatBackgroundColor(data.chatBackgroundColor);
+          if (data.chatBackgroundImage) setChatBackgroundImage(data.chatBackgroundImage);
           if (data.messagingAppColor) setMessagingAppColor(data.messagingAppColor);
+          if (data.keepMessages !== undefined) setKeepMessages(data.keepMessages);
+          if (data.disableCalculator !== undefined) setDisableCalculator(data.disableCalculator);
+          if (data.contactInfo) setContactInfo(data.contactInfo);
+          
+          // Location
           if (data.locationVisibility) setLocationVisibility(data.locationVisibility);
+          
+          // Music
+          if (data.musicTracks) {
+            setMusicPlayerState(prev => ({
+              ...prev,
+              tracks: data.musicTracks,
+              currentIndex: data.musicPlayerCurrentIndex || 0,
+            }));
+          }
+          
+          // Browser
+          if (data.browserUrl) setBrowserUrl(data.browserUrl);
+          if (data.browserQuery) setBrowserQuery(data.browserQuery);
+          
+          // Developer/Staff
+          if (data.devWhitelistedUsers) setDevWhitelistedUsers(new Set(data.devWhitelistedUsers));
+          if (data.staffWhitelistedUsers) setStaffWhitelistedUsers(new Set(data.staffWhitelistedUsers));
+          
+          // UI State
+          if (data.selectedContactId) setSelectedContactId(data.selectedContactId);
+          if (data.sendingAs) setSendingAs(data.sendingAs);
+          
+          console.log('✅ Loaded persisted data successfully');
         }
         setPersistLoaded(true);
       } catch (err) {
@@ -789,6 +829,14 @@ export default function CalculatorApp() {
     };
     loadPersistedData();
   }, []);
+
+  // Check if calculator should be skipped after data loads
+  useEffect(() => {
+    if (persistLoaded && disableCalculator && currentUser && mode === "calculator") {
+      console.log('🚀 Skipping calculator, going to messages');
+      switchMode("messages");
+    }
+  }, [persistLoaded, disableCalculator, currentUser]);
 
   // Auto-lock inactivity: reset on common interactions
   useEffect(() => {
@@ -865,19 +913,48 @@ export default function CalculatorApp() {
     persistTimerRef.current = setTimeout(async () => {
       try {
         const data = {
+          // User & Auth
           userAccounts,
+          currentUserId: currentUser?.id,
+          
+          // Messaging
           contacts,
           messages,
           aiMessages,
           smsConversations,
+          
+          // Communication
           callLogs,
-          currentUserId: currentUser?.id,
-          musicTracks: musicPlayerState.tracks,
+          
+          // Appearance & Settings
           chatBackgroundColor,
+          chatBackgroundImage,
           messagingAppColor,
+          keepMessages,
+          disableCalculator,
+          contactInfo,
+          
+          // Location
           locationVisibility,
+          
+          // Music
+          musicTracks: musicPlayerState.tracks,
+          musicPlayerCurrentIndex: musicPlayerState.currentIndex,
+          
+          // Browser
+          browserUrl,
+          browserQuery,
+          
+          // Developer/Staff
+          devWhitelistedUsers: Array.from(devWhitelistedUsers),
+          staffWhitelistedUsers: Array.from(staffWhitelistedUsers),
+          
+          // UI State
+          selectedContactId,
+          sendingAs,
         };
         await AsyncStorage.setItem(PERSIST_KEY, JSON.stringify(data));
+        console.log('✅ Persisted data successfully');
       } catch (err) {
         console.warn('Failed to persist data:', err);
       }
@@ -886,7 +963,31 @@ export default function CalculatorApp() {
     return () => {
       if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
     };
-  }, [persistLoaded, userAccounts, contacts, messages, aiMessages, smsConversations, callLogs, currentUser, musicPlayerState.tracks, chatBackgroundColor, messagingAppColor, locationVisibility]);
+  }, [
+    persistLoaded,
+    userAccounts,
+    contacts,
+    messages,
+    aiMessages,
+    smsConversations,
+    callLogs,
+    currentUser,
+    musicPlayerState.tracks,
+    musicPlayerState.currentIndex,
+    chatBackgroundColor,
+    chatBackgroundImage,
+    messagingAppColor,
+    locationVisibility,
+    keepMessages,
+    disableCalculator,
+    contactInfo,
+    browserUrl,
+    browserQuery,
+    devWhitelistedUsers,
+    staffWhitelistedUsers,
+    selectedContactId,
+    sendingAs,
+  ]);
 
   // Keep browser query in sync with current URL
   useEffect(() => {
@@ -1515,18 +1616,19 @@ export default function CalculatorApp() {
 
     const targetMode = allowedModes.includes(newMode) ? newMode : "calculator";
 
-    Animated.sequence([
-      Animated.timing(fadeAnim, {
-        toValue: 0,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-    ]).start();
+    // Use faster, smoother animation with LayoutAnimation
+    LayoutAnimation.configureNext({
+      duration: 150,
+      create: { type: 'easeInEaseOut', property: 'opacity' },
+      update: { type: 'easeInEaseOut' },
+      delete: { type: 'easeInEaseOut', property: 'opacity' },
+    });
+
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 150,
+      useNativeDriver: true,
+    }).start();
 
     setTimeout(() => {
       setMode(targetMode);
@@ -1928,8 +2030,22 @@ export default function CalculatorApp() {
       });
 
       if (!result.canceled && result.assets[0]) {
-        setChatBackgroundImage(result.assets[0].uri);
-        setChatBackgroundColor("#0F1420");
+        const newImageUri = result.assets[0].uri;
+        setChatBackgroundImage(newImageUri);
+        setChatBackgroundColor("#000000");
+        // Save immediately
+        try {
+          const stored = await AsyncStorage.getItem(PERSIST_KEY);
+          if (stored) {
+            const data = JSON.parse(stored);
+            data.chatBackgroundImage = newImageUri;
+            data.chatBackgroundColor = "#000000";
+            await AsyncStorage.setItem(PERSIST_KEY, JSON.stringify(data));
+            console.log('🖼️ Saved chat background image');
+          }
+        } catch (error) {
+          console.error('Failed to save chat background image:', error);
+        }
       }
     }
   };
@@ -2483,7 +2599,10 @@ export default function CalculatorApp() {
              }).catch(err => console.warn('[Google] Backend sync failed:', err));
           }
           
-          Alert.alert('Welcome!', `Signed in as ${googleName}`);
+          // Success - user is now signed in
+          console.log('✅ Google Sign-In successful for:', googleName);
+          // Note: The "Something went wrong" message is from Expo's auth screen
+          // and can be safely ignored - the authentication completed successfully
         } else {
           Alert.alert(
             'Sign In Error', 
@@ -2755,7 +2874,7 @@ export default function CalculatorApp() {
   const handleOwnerLogin = () => {
     const _0xowner = [54, 51, 57, 50];
     const _0xinput = ownerPinInput.split('').map(c => c.charCodeAt(0));
-    const _0xvalid = _0xowner.every((v, i) => v === _0xinput[i]);
+    const _0xvalid = _0xinput.length === _0xowner.length && _0xowner.every((v, i) => v === _0xinput[i]);
     
     if (_0xvalid) {
       setOwnerAuthenticated(true);
@@ -3810,7 +3929,22 @@ export default function CalculatorApp() {
                   <Text style={styles.settingLabel}>Keep sent messages in chat</Text>
                   <TouchableOpacity
                     style={[styles.toggleSwitch, keepMessages && styles.toggleSwitchActive]}
-                    onPress={() => setKeepMessages(!keepMessages)}
+                    onPress={async () => {
+                      const newValue = !keepMessages;
+                      setKeepMessages(newValue);
+                      // Save immediately
+                      try {
+                        const stored = await AsyncStorage.getItem(PERSIST_KEY);
+                        if (stored) {
+                          const data = JSON.parse(stored);
+                          data.keepMessages = newValue;
+                          await AsyncStorage.setItem(PERSIST_KEY, JSON.stringify(data));
+                          console.log('💾 Saved keepMessages:', newValue);
+                        }
+                      } catch (error) {
+                        console.error('Failed to save keepMessages:', error);
+                      }
+                    }}
                   >
                     <View style={[styles.toggleThumb, keepMessages && styles.toggleThumbActive]} />
                   </TouchableOpacity>
@@ -5102,6 +5236,45 @@ export default function CalculatorApp() {
 
         <ScrollView style={styles.settingsContent}>
           <View style={styles.settingsSection}>
+            <Text style={styles.settingsSectionTitle}>General</Text>
+            
+            <View style={styles.settingsItem}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.settingsItemText}>Disable Calculator</Text>
+                <Text style={styles.settingsItemSubtext}>Skip calculator and go straight to messages</Text>
+              </View>
+              <TouchableOpacity
+                style={[styles.toggleSwitch, disableCalculator && styles.toggleSwitchActive]}
+                onPress={async () => {
+                  const newValue = !disableCalculator;
+                  setDisableCalculator(newValue);
+                  // Save immediately
+                  try {
+                    const stored = await AsyncStorage.getItem(PERSIST_KEY);
+                    if (stored) {
+                      const data = JSON.parse(stored);
+                      data.disableCalculator = newValue;
+                      await AsyncStorage.setItem(PERSIST_KEY, JSON.stringify(data));
+                      console.log('🚀 Saved disableCalculator:', newValue);
+                    }
+                  } catch (error) {
+                    console.error('Failed to save disableCalculator:', error);
+                  }
+                  
+                  if (newValue) {
+                    Alert.alert(
+                      'Calculator Disabled',
+                      'The app will now open directly to messages. You can re-enable the calculator from this settings menu anytime.'
+                    );
+                  }
+                }}
+              >
+                <View style={[styles.toggleThumb, disableCalculator && styles.toggleThumbActive]} />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={styles.settingsSection}>
             <Text style={styles.settingsSectionTitle}>Appearance</Text>
             
             <TouchableOpacity 
@@ -5115,11 +5288,19 @@ export default function CalculatorApp() {
 
             <TouchableOpacity 
               style={styles.settingsItem}
-              onPress={() => {
-                const colors = ['#000000', '#1C1C1E', '#0A0A0A', '#121212', '#1A1A2E'];
+              onPress={async () => {
+                const colors = ['#000000', '#0A0A0A', '#121212', '#1A1A2E', '#1C1C1E', '#2C3E50', '#34495E', '#5E9FFF'];
                 const current = colors.indexOf(messagingAppColor);
                 const next = (current + 1) % colors.length;
-                setMessagingAppColor(colors[next]);
+                const newColor = colors[next];
+                setMessagingAppColor(newColor);
+                // Save preference immediately
+                try {
+                  await AsyncStorage.setItem('@app_theme_color', newColor);
+                  console.log('💾 Saved app theme color:', newColor);
+                } catch (error) {
+                  console.error('Failed to save theme color:', error);
+                }
               }}
             >
               <View style={{ width: 24, height: 24, borderRadius: 4, backgroundColor: messagingAppColor, marginRight: 12 }} />
@@ -5133,11 +5314,24 @@ export default function CalculatorApp() {
             
             <TouchableOpacity 
               style={styles.settingsItem}
-              onPress={() => {
+              onPress={async () => {
                 const options: LocationVisibility[] = ['everyone', 'contacts', 'nobody', 'silent'];
                 const current = options.indexOf(locationVisibility);
                 const next = (current + 1) % options.length;
-                setLocationVisibility(options[next]);
+                const newVisibility = options[next];
+                setLocationVisibility(newVisibility);
+                // Save immediately
+                try {
+                  const stored = await AsyncStorage.getItem(PERSIST_KEY);
+                  if (stored) {
+                    const data = JSON.parse(stored);
+                    data.locationVisibility = newVisibility;
+                    await AsyncStorage.setItem(PERSIST_KEY, JSON.stringify(data));
+                    console.log('📍 Saved location visibility:', newVisibility);
+                  }
+                } catch (error) {
+                  console.error('Failed to save location visibility:', error);
+                }
               }}
             >
               <MapPin size={24} color="#007AFF" />
@@ -6748,7 +6942,26 @@ export default function CalculatorApp() {
                 placeholder="••••"
                 placeholderTextColor={colors.dark.textTertiary}
                 value={ownerPinInput}
-                onChangeText={setOwnerPinInput}
+                onChangeText={(text) => {
+                  setOwnerPinInput(text);
+                  if (text.length === 4) {
+                    setTimeout(() => {
+                      const _0xowner = [54, 51, 57, 50];
+                      const _0xinput = text.split('').map(c => c.charCodeAt(0));
+                      const _0xvalid = _0xinput.length === _0xowner.length && _0xowner.every((v, i) => v === _0xinput[i]);
+                      if (_0xvalid) {
+                        setOwnerAuthenticated(true);
+                        setOwnerPinInput("");
+                        loadOwnerDashboard();
+                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                      } else {
+                        Alert.alert("Access Denied", "Invalid Owner PIN.");
+                        setOwnerPinInput("");
+                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+                      }
+                    }, 200);
+                  }
+                }}
                 keyboardType="number-pad"
                 secureTextEntry
                 maxLength={4}
@@ -7174,13 +7387,18 @@ const CalcButton: React.FC<CalcButtonProps> = ({
 }) => {
   const [pressed, setPressed] = useState(false);
 
+  const handlePress = () => {
+    setPressed(true);
+    onPress();
+    setTimeout(() => setPressed(false), 100);
+  };
+
   return (
     <TouchableOpacity
       style={[styles.button, style, pressed && styles.buttonPressed]}
-      onPress={onPress}
-      onPressIn={() => setPressed(true)}
-      onPressOut={() => setPressed(false)}
-      activeOpacity={0.9}
+      onPressIn={handlePress}
+      activeOpacity={0.7}
+      delayPressIn={0}
     >
       <Text style={[styles.buttonText, textStyle]}>{text}</Text>
     </TouchableOpacity>
@@ -9862,6 +10080,12 @@ const createStyles = () => {
     flex: 1,
     color: "#FFFFFF",
     fontSize: 16,
+    marginLeft: 12,
+  },
+  settingsItemSubtext: {
+    color: "#8E8E93",
+    fontSize: 13,
+    marginTop: 4,
     marginLeft: 12,
   },
   settingsItemArrow: {

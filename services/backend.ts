@@ -658,6 +658,72 @@ class BackendService {
       return '1.0.0';
     }
   }
+
+  /**
+   * Group Chat Methods
+   */
+  async createGroup(groupData: any): Promise<any> {
+    try {
+      const response = await this.post('/groups', groupData);
+      console.log('[Backend] Group created:', response?.data?.id);
+      return response?.data;
+    } catch (error) {
+      console.error('[Backend] Create group error:', error);
+      this.queueSync('group', groupData);
+      return null;
+    }
+  }
+
+  async getUserGroups(userId: string): Promise<any[]> {
+    try {
+      const response = await this.get(`/groups/user/${userId}`);
+      return response?.data || [];
+    } catch (error) {
+      console.error('[Backend] Get user groups error:', error);
+      return [];
+    }
+  }
+
+  async sendGroupMessage(messageData: any): Promise<any> {
+    try {
+      const response = await this.post('/groups/messages', messageData);
+      return response?.data;
+    } catch (error) {
+      console.error('[Backend] Send group message error:', error);
+      this.queueSync('group_message', messageData);
+      return null;
+    }
+  }
+
+  async getGroupMessages(groupId: string, limit: number = 50, skip: number = 0): Promise<any[]> {
+    try {
+      const response = await this.get(`/groups/${groupId}/messages`, { limit, skip });
+      return response?.data || [];
+    } catch (error) {
+      console.error('[Backend] Get group messages error:', error);
+      return [];
+    }
+  }
+
+  async addGroupMember(groupId: string, userId: string): Promise<boolean> {
+    try {
+      const response = await this.post(`/groups/${groupId}/members`, { userId });
+      return response?.success !== false;
+    } catch (error) {
+      console.error('[Backend] Add group member error:', error);
+      return false;
+    }
+  }
+
+  async removeGroupMember(groupId: string, userId: string): Promise<boolean> {
+    try {
+      const response = await this.delete(`/groups/${groupId}/members/${userId}`);
+      return response?.success !== false;
+    } catch (error) {
+      console.error('[Backend] Remove group member error:', error);
+      return false;
+    }
+  }
 }
 
 export const backend = BackendService.getInstance();

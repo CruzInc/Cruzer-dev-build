@@ -63,22 +63,37 @@ class LocationSharingService {
   async updateLocation() {
     try {
       const permission = await Location.requestForegroundPermissionsAsync();
-      if (!permission.granted) return;
-      const location = await Location.getCurrentPositionAsync({});
+      if (!permission.granted) {
+        console.warn('[LocationSharing] Permission not granted');
+        return;
+      }
+      
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      
       this.userLocation = {
         latitude: location.coords.latitude,
         longitude: location.coords.longitude,
         accuracy: location.coords.accuracy || 0,
         timestamp: new Date(),
       };
+      
       this.locationHistory.push({
         userId: 'current',
         location: this.userLocation,
         sharedWith: Array.from(this.sharedWithUsers.keys()),
       });
+      
       this.saveLocation();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error updating location:', error);
+      // Don't crash on location errors
+      if (error.message?.includes('Location provider is unavailable')) {
+        console.warn('[LocationSharing] Location services unavailable');
+      } else if (error.message?.includes('timeout')) {
+        console.warn('[LocationSharing] Location request timed out');
+      }
     }
   }
 

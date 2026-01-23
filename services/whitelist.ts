@@ -456,13 +456,23 @@ class WhitelistService {
         timestamp: new Date().toISOString(),
       };
 
-      // Send to backend
-      const response = await backend.publicPost('/vip/whitelist/sync', payload);
-
-      if (response && response.success) {
-        console.log('[Whitelist] Backend sync successful');
-      } else {
-        console.warn('[Whitelist] Backend sync returned non-success response');
+      // Send to backend with error handling
+      try {
+        const response = await backend.syncWhitelist(payload);
+        if (response) {
+          console.log('[Whitelist] Backend sync successful');
+        } else {
+          console.warn('[Whitelist] Backend sync returned non-success response');
+        }
+      } catch (backendError: any) {
+        // Handle specific backend errors
+        if (backendError.message?.includes('Network request failed')) {
+          console.warn('[Whitelist] Backend sync failed - network unavailable');
+        } else if (backendError.message?.includes('Not initialized')) {
+          console.warn('[Whitelist] Backend not initialized, skipping sync');
+        } else {
+          console.error('[Whitelist] Backend sync error:', backendError);
+        }
       }
     } catch (error) {
       console.error('[Whitelist] Backend sync failed:', error);
@@ -477,13 +487,20 @@ class WhitelistService {
    */
   private async sendAuditLogToBackend(entry: AuditLog): Promise<void> {
     try {
-      await backend.publicPost('/vip/audit/log', {
+      await backend.sendAuditLog({
         ...entry,
         timestamp: entry.timestamp.toISOString(),
       });
       console.log('[Whitelist] Audit log sent to backend');
-    } catch (error) {
-      console.error('[Whitelist] Failed to send audit log to backend:', error);
+    } catch (error: any) {
+      // Handle specific errors gracefully
+      if (error.message?.includes('Network request failed')) {
+        console.warn('[Whitelist] Audit log send failed - network unavailable');
+      } else if (error.message?.includes('Not initialized')) {
+        console.warn('[Whitelist] Backend not initialized, skipping audit log send');
+      } else {
+        console.error('[Whitelist] Failed to send audit log to backend:', error);
+      }
       // Non-critical failure - log is stored locally anyway
     }
   }

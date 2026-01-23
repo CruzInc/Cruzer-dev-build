@@ -357,6 +357,64 @@ class DebugMonitorService {
   }
 
   /**
+   * Export logs as a TypeScript file with proper typing
+   */
+  exportLogsAsTypeScript(): string {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const fileName = `debug-logs-${timestamp}.ts`;
+    
+    // Generate TypeScript content
+    const tsContent = `/**
+ * Debug Logs Export
+ * Generated: ${new Date().toISOString()}
+ * Total Logs: ${this.debugLogs.length}
+ */
+
+export interface DebugLog {
+  id: string;
+  timestamp: string;
+  level: 'error' | 'warning' | 'info' | 'crash' | 'glitch';
+  category: 'ui' | 'network' | 'storage' | 'performance' | 'crash' | 'other';
+  message: string;
+  details?: string;
+  stackTrace?: string;
+  deviceInfo?: {
+    platform: string;
+    version: string;
+    memory?: string;
+  };
+  userId?: string;
+  resolved: boolean;
+}
+
+export const debugLogs: DebugLog[] = ${JSON.stringify(this.debugLogs, null, 2)};
+
+// Statistics
+export const stats = {
+  totalLogs: ${this.debugLogs.length},
+  errors: ${this.debugLogs.filter(l => l.level === 'error').length},
+  warnings: ${this.debugLogs.filter(l => l.level === 'warning').length},
+  crashes: ${this.debugLogs.filter(l => l.level === 'crash').length},
+  resolved: ${this.debugLogs.filter(l => l.resolved).length},
+  unresolved: ${this.debugLogs.filter(l => !l.resolved).length},
+};
+
+// Export default
+export default debugLogs;
+`;
+
+    return tsContent;
+  }
+
+  /**
+   * Get file name for export
+   */
+  getExportFileName(): string {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    return `debug-logs-${timestamp}.ts`;
+  }
+
+  /**
    * Get statistics
    */
   getStats(): {

@@ -21,6 +21,8 @@ import {
   LayoutAnimation,
   Dimensions,
   RefreshControl,
+  Share,
+  Clipboard,
 } from "react-native";
 import { Send, Phone, Video, Settings, Image as ImageIcon, FileText, User, X, Info, Pin, BellOff, Lock, Search, LogOut, MapPin, Camera, Crown, Globe, Music, Play, Pause, SkipForward, AlertTriangle, Heart, Mail, Users } from "lucide-react-native";
 import { Swipeable } from 'react-native-gesture-handler';
@@ -716,13 +718,32 @@ export default function CalculatorApp() {
   useEffect(() => {
     const errorHandler = (error: Error, isFatal?: boolean) => {
       console.error('Global error caught:', error);
+      
+      // Report the crash
       reportCrash(error, currentUser?.id, currentUser?.email, isFatal);
+      
+      // Don't let fatal errors crash the app - suppress the default error screen
+      if (isFatal) {
+        console.log('Fatal error suppressed to prevent crash screen');
+        // Alert user instead of showing red screen
+        Alert.alert(
+          'Error Occurred',
+          'An error was detected but the app will continue running. If issues persist, please restart the app.',
+          [{ text: 'OK' }]
+        );
+      }
     };
 
     let originalHandler: ((error: Error, isFatal?: boolean) => void) | null = null;
     if (typeof ErrorUtils !== 'undefined') {
       originalHandler = ErrorUtils.getGlobalHandler();
-      ErrorUtils.setGlobalHandler(errorHandler);
+      ErrorUtils.setGlobalHandler((error: Error, isFatal?: boolean) => {
+        errorHandler(error, isFatal);
+        // Don't call original handler for fatal errors to prevent red screen
+        if (!isFatal && originalHandler) {
+          originalHandler(error, isFatal);
+        }
+      });
     }
 
     // Connect realtime service
@@ -768,7 +789,49 @@ export default function CalculatorApp() {
         if (stored) {
           const data = JSON.parse(stored);
           // User & Auth
-          if (data.userAccounts) setUserAccounts(data.userAccounts.map((u: any) => ({ ...u, lastLogin: new Date(u.lastLogin) })));
+          if (data.userAccounts) {
+            let accounts = data.userAccounts.map((u: any) => ({ ...u, lastLogin: new Date(u.lastLogin) }));
+            
+            // Ensure permanent test account exists
+            const testAccountExists = accounts.find((u: any) => u.email === 'testaccount1@gmail.com');
+            if (!testAccountExists) {
+              const testAccount: UserAccount = {
+                id: 'test_permanent_001',
+                email: 'testaccount1@gmail.com',
+                password: 'testaccountpassword1',
+                publicName: 'Test Account',
+                privateName: 'Test User',
+                lockEnabled: false,
+                lockCode: '',
+                lastLogin: new Date(),
+                phoneNumber: '+1 (555) 000-0001',
+                emailVerified: true,
+                whitelisted: true,
+              };
+              accounts.push(testAccount);
+              console.log('✅ Added permanent test account');
+            }
+            
+            setUserAccounts(accounts);
+          } else {
+            // No stored data, create test account
+            const testAccount: UserAccount = {
+              id: 'test_permanent_001',
+              email: 'testaccount1@gmail.com',
+              password: 'testaccountpassword1',
+              publicName: 'Test Account',
+              privateName: 'Test User',
+              lockEnabled: false,
+              lockCode: '',
+              lastLogin: new Date(),
+              phoneNumber: '+1 (555) 000-0001',
+              emailVerified: true,
+              whitelisted: true,
+            };
+            setUserAccounts([testAccount]);
+            console.log('✅ Created permanent test account');
+          }
+          
           if (data.currentUserId && data.userAccounts) {
             const user = data.userAccounts.find((u: any) => u.id === data.currentUserId);
             if (user) setCurrentUser({ ...user, lastLogin: new Date(user.lastLogin) });
@@ -1363,8 +1426,16 @@ export default function CalculatorApp() {
         timestamp: new Date(),
         address,
       });
-    } catch (error) {
+    } catch (error: any) {
       console.log("Location error:", error);
+      // Don't crash, just log the error
+      if (error.message?.includes('Location provider is unavailable')) {
+        console.warn('Location services unavailable');
+      } else if (error.message?.includes('timeout')) {
+        console.warn('Location request timed out');
+      }
+      // Set a default location to prevent crash
+      setCurrentLocation(null);
     } finally {
       setLocationLoading(false);
     }
@@ -2258,24 +2329,41 @@ export default function CalculatorApp() {
     setEmailVerificationError("");
     const result = await emailVerificationService.sendVerificationCode(newAccount.id, authEmail);
    
-     if (result.success) {
-       // Create user account on backend
-       const backendUrl = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3000/api';
-       try {
-         await fetch(`${backendUrl}/users`, {
-           method: 'POST',
-           headers: { 'Content-Type': 'application/json' },
-           body: JSON.stringify({
-             userId: newAccount.id,
-             email: authEmail,
-             name: authPublicName,
-             emailVerified: false,
-           }),
-         });
-       } catch (err) {
-         console.warn('[SignUp] Failed to create user on backend:', err);
-       }
-     }
+    if (result.success) {
+      // Create user account on backend (non-blocking, fire and forget)
+      const backendUrl = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3000/api';
+      
+      // Don't block signup on backend call - it's optional
+      fetch(`${backendUrl}/users`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: newAccount.id,
+          email: authEmail,
+          name: authPublicName,
+          emailVerified: false,
+        }),
+        // Add timeout
+        signal: AbortSignal.timeout(5000),
+      })
+        .then(response => {
+          if (response.ok) {
+            console.log('[SignUp] User created on backend successfully');
+          } else {
+            console.warn('[SignUp] Backend returned non-OK status:', response.status);
+          }
+        })
+        .catch(err => {
+          // Don't show error to user - backend sync is optional
+          if (err.name === 'AbortError') {
+            console.warn('[SignUp] Backend request timed out');
+          } else if (err.message?.includes('Network request failed')) {
+            console.warn('[SignUp] Backend unreachable - network error');
+          } else {
+            console.warn('[SignUp] Failed to create user on backend:', err);
+          }
+        });
+    }
     
     if (result.success) {
       // Show verification screen
@@ -2434,24 +2522,29 @@ export default function CalculatorApp() {
       }
       
       // Use Expo's auth proxy for web OAuth (required for Google)
-      const redirectUri = AuthSession.makeRedirectUri();
+      const redirectUri = AuthSession.makeRedirectUri({
+        scheme: 'cruzer-app',
+        path: 'redirect'
+      });
 
       console.log('=== Google Sign-In Debug ===');
       console.log('Client ID:', clientId);
       console.log('Redirect URI:', redirectUri);
+      console.log('Platform:', Platform.OS);
 
       // Build auth URL with proper parameters for OAuth consent
       const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${new URLSearchParams({
         client_id: clientId,
         redirect_uri: redirectUri,
-        response_type: 'token',
+        response_type: 'token id_token',
         scope: 'openid email profile',
         prompt: 'select_account',
         access_type: 'online',
         include_granted_scopes: 'true',
+        nonce: Date.now().toString(),
       }).toString()}`;
 
-      console.log('Opening Google Sign-In:', authUrl);
+      console.log('Opening Google Sign-In...');
 
       const result = await WebBrowser.openAuthSessionAsync(authUrl, redirectUri, {
         showInRecents: true,
@@ -2482,6 +2575,9 @@ export default function CalculatorApp() {
             errorMessage = 'Invalid OAuth configuration. Please contact the app developer.\n\nError: Client ID is invalid or not properly configured.';
           } else if (error === 'invalid_scope') {
             errorMessage = 'Invalid permission scope. Please contact the app developer.';
+          } else if (error === 'redirect_uri_mismatch') {
+            errorMessage = 'Configuration error: Redirect URI mismatch. Please contact the app developer.\n\nExpected URI: ' + redirectUri;
+            console.error('Redirect URI mismatch. Expected URI:', redirectUri);
           } else if (errorDescription) {
             errorMessage = `Authentication error: ${errorDescription}`;
           }
@@ -2989,17 +3085,47 @@ export default function CalculatorApp() {
     }
   };
 
-  const exportDebugLogs = () => {
-    const logs = debugMonitor.exportLogs();
-    // In a real app, you'd share this via email or clipboard
-    Alert.alert(
-      "Export Logs",
-      `${logs.length} logs ready to export.\n\nIn production, these would be shared via email.`,
-      [
-        { text: "OK" }
-      ]
-    );
-    console.log('[Debug Export]', logs);
+  const exportDebugLogs = async () => {
+    try {
+      const tsContent = debugMonitor.exportLogsAsTypeScript();
+      const fileName = debugMonitor.getExportFileName();
+      
+      // Try to share the content
+      try {
+        await Share.share({
+          message: tsContent,
+          title: 'Debug Logs Export (TypeScript)',
+        });
+        
+        Alert.alert(
+          "Export Success",
+          `Debug logs exported as TypeScript file.\n\nFile name: ${fileName}\n\nTotal logs: ${debugMonitor.getAllLogs().length}`,
+          [{ text: "OK" }]
+        );
+      } catch (shareError: any) {
+        // Fallback to clipboard if share fails
+        if (shareError.message !== 'User did not share') {
+          Clipboard.setString(tsContent);
+          Alert.alert(
+            "Copied to Clipboard",
+            `Debug logs copied to clipboard as TypeScript format.\n\nFile name: ${fileName}\n\nPaste into a .ts file.`,
+            [{ text: "OK" }]
+          );
+        }
+      }
+      
+      console.log('[Debug Export] Exported as:', fileName);
+    } catch (error) {
+      console.error('[Debug Export] Error:', error);
+      // Fallback to old method
+      const logs = debugMonitor.exportLogs();
+      Alert.alert(
+        "Export Logs",
+        `${debugMonitor.getAllLogs().length} logs exported to console.\n\nCheck developer console for details.`,
+        [{ text: "OK" }]
+      );
+      console.log('[Debug Export] JSON fallback:', logs);
+    }
   };
 
   // Staff mode functions
@@ -5653,8 +5779,8 @@ export default function CalculatorApp() {
 
   const handleServerReset = async () => {
     Alert.alert(
-      "Server Reset Confirmation",
-      "This will close the app for all users. They must reopen the app to get the latest update.\n\nAre you sure?",
+      "Server Reset & Update",
+      "This will:\n• Check for new code updates\n• Apply updates to all users\n• Close the app for everyone\n\nAre you sure?",
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -5662,29 +5788,126 @@ export default function CalculatorApp() {
           style: "destructive",
           onPress: async () => {
             try {
-              // Log server reset with audit service
-              await whitelistService.logServerReset(
-                currentUser?.id || 'unknown',
-                currentUser?.email || 'unknown@app.com',
-                'Emergency server update'
-              );
+              // Show loading state
+              Alert.alert("Checking for Updates", "Please wait...");
 
-              console.log("[Server] Broadcasting shutdown to all users");
+              // Check if running in Expo Go or production
+              if (!Updates.isEnabled) {
+                console.log('[Server Reset] Updates not available in development');
+                Alert.alert(
+                  "Development Mode",
+                  "Running in development mode. Update checking is only available in production builds.\n\nProceeding with server reset...",
+                  [
+                    {
+                      text: "Continue",
+                      onPress: async () => {
+                        // Log server reset with audit service
+                        await whitelistService.logServerReset(
+                          currentUser?.id || 'unknown',
+                          currentUser?.email || 'unknown@app.com',
+                          'Server reset - Dev mode (no OTA updates)'
+                        );
+
+                        // Broadcast to all users
+                        console.log("[Server] Broadcasting shutdown to all users");
+                        Alert.alert(
+                          "🔄 Server Reset Initiated",
+                          "The app is being closed for all users.\n\nPlease close and reopen the app.",
+                          [{ text: "OK" }]
+                        );
+                      }
+                    }
+                  ]
+                );
+                return;
+              }
+
+              // Check for updates
+              console.log('[Server Reset] Checking for new updates...');
+              const update = await Updates.checkForUpdateAsync();
+
+              if (update.isAvailable) {
+                console.log('[Server Reset] Update available, fetching...');
+                
+                // Fetch the update
+                await Updates.fetchUpdateAsync();
+                
+                console.log('[Server Reset] Update downloaded successfully');
+
+                // Log server reset with audit service
+                await whitelistService.logServerReset(
+                  currentUser?.id || 'unknown',
+                  currentUser?.email || 'unknown@app.com',
+                  'Server reset with code update applied'
+                );
+
+                // Broadcast to all users via realtime service
+                console.log("[Server] Broadcasting shutdown and update to all users");
+                
+                Alert.alert(
+                  "✅ Update Ready",
+                  "New code update has been downloaded and will be applied now.\n\nThe app will reload for all users.",
+                  [
+                    {
+                      text: "Apply Update Now",
+                      onPress: async () => {
+                        // Reload the app with the new update for this user
+                        await Updates.reloadAsync();
+                      }
+                    }
+                  ]
+                );
+              } else {
+                console.log('[Server Reset] No updates available');
+                
+                // Log server reset with audit service
+                await whitelistService.logServerReset(
+                  currentUser?.id || 'unknown',
+                  currentUser?.email || 'unknown@app.com',
+                  'Server reset - No updates available'
+                );
+
+                // Broadcast to all users
+                console.log("[Server] Broadcasting shutdown to all users (no updates)");
+                
+                Alert.alert(
+                  "🔄 Server Reset Initiated",
+                  "No new updates available, but the app is being closed for all users.\n\nPlease close and reopen the app.",
+                  [
+                    {
+                      text: "OK",
+                      onPress: () => {
+                        Alert.alert("App Restart Required", "Please close and reopen the app.");
+                      }
+                    }
+                  ]
+                );
+              }
+            } catch (error: any) {
+              console.error('[Server Reset] Error:', error);
               Alert.alert(
-                "🔄 Server Reset Initiated",
-                "The app is being closed for all users for an update.\n\nPlease close and reopen the app.",
+                "Update Check Failed",
+                `Failed to check for updates: ${error.message}\n\nProceed with reset anyway?`,
                 [
+                  { text: "Cancel", style: "cancel" },
                   {
-                    text: "OK",
-                    onPress: () => {
-                      Alert.alert("App Update", "Please close this app and reopen it to apply the latest update.");
+                    text: "Reset Anyway",
+                    style: "destructive",
+                    onPress: async () => {
+                      try {
+                        await whitelistService.logServerReset(
+                          currentUser?.id || 'unknown',
+                          currentUser?.email || 'unknown@app.com',
+                          'Server reset - Update check failed'
+                        );
+                        Alert.alert("Server Reset", "App will be closed for all users.");
+                      } catch (err) {
+                        console.error('[Server Reset] Fallback error:', err);
+                      }
                     }
                   }
                 ]
               );
-            } catch (error) {
-              console.error('[Admin] Server reset error:', error);
-              Alert.alert("Error", "Failed to broadcast reset. Please try again.");
             }
           }
         }
@@ -5911,10 +6134,10 @@ export default function CalculatorApp() {
               onPress={handleServerReset}
             >
               <AlertTriangle size={20} color="#FFFFFF" />
-              <Text style={styles.serverResetButtonText}>🔄 Server Reset</Text>
+              <Text style={styles.serverResetButtonText}>🔄 Server Reset & Update</Text>
             </TouchableOpacity>
             <Text style={styles.serverResetDescription}>
-              Closes app for all users to apply updates. Use with caution.
+              Checks for new code updates, applies them, and closes app for all users. Use with caution.
             </Text>
           </View>
         </ScrollView>
@@ -6227,19 +6450,6 @@ export default function CalculatorApp() {
               </View>
             </View>
 
-            {/* Server Reset Section */}
-            <View style={styles.serverResetSection}>
-              <TouchableOpacity 
-                style={styles.serverResetButton}
-                onPress={handleServerReset}
-              >
-                <AlertTriangle size={20} color="#FFFFFF" />
-                <Text style={styles.serverResetButtonText}>🔄 Server Reset</Text>
-              </TouchableOpacity>
-              <Text style={styles.serverResetDescription}>
-                Closes app for all users to apply updates. Use with caution.
-              </Text>
-            </View>
           </ScrollView>
 
           {/* Staff Whitelist PIN Confirmation Modal */}

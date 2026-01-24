@@ -36,7 +36,7 @@ export interface SessionTimeout {
 export class AdvancedFeaturesService {
   private messageQueue: Map<string, QueuedMessage> = new Map();
   private lastCrashSnapshot: CrashSnapshot | null = null;
-  private sessionInactivityTimer: NodeJS.Timeout | null = null;
+  private sessionInactivityTimer: NodeJS.Timeout | number | null = null;
   private lastActivityTime: Date = new Date();
 
   private retryConfig: RetryConfig = {

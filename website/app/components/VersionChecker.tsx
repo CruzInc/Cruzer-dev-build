@@ -36,7 +36,7 @@ export default function VersionChecker() {
         ];
 
         let response = null;
-        let lastError = null;
+        let lastError: Error | unknown = null;
 
         for (const endpoint of endpoints) {
           try {
@@ -54,7 +54,8 @@ export default function VersionChecker() {
         }
 
         if (!response || !response.ok) {
-          throw new Error(lastError?.message || 'Failed to fetch version info');
+          const errorMessage = lastError instanceof Error ? lastError.message : 'Failed to fetch version info';
+          throw new Error(errorMessage);
         }
 
         const data = await response.json();

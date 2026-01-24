@@ -44,6 +44,7 @@ app.use('/api/messages', require('./routes/messages'));
 app.use('/api/contacts', require('./routes/contacts'));
 app.use('/api/calculations', require('./routes/calculations'));
 app.use('/api/realtime', require('./routes/realtime'));
+app.use('/api/versions', require('./routes/versions'));
 
 // Health check endpoint
 app.get('/health', (req, res) => {

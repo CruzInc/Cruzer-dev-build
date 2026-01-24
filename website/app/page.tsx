@@ -1,4 +1,5 @@
 import React from 'react'
+import VersionChecker from './components/VersionChecker'
 
 export default function Home() {
   return (
@@ -137,6 +138,8 @@ export default function Home() {
         <div className="download-content">
           <h2>Ready to Connect?</h2>
           <p>Download Cruzer now and join millions of users worldwide.</p>
+          
+          <VersionChecker />
           
           <div className="download-buttons">
             <a href="https://apps.apple.com" className="download-btn ios">

@@ -470,6 +470,15 @@ export default function CalculatorApp() {
   const [selectedUpdateVersion, setSelectedUpdateVersion] = useState<string>(updateLog[0]?.version || "");
   const [showDisabledFeaturesModal, setShowDisabledFeaturesModal] = useState<boolean>(false);
 
+  // Terms and Conditions state
+  const [showTermsAndConditions, setShowTermsAndConditions] = useState<boolean>(false);
+
+  // Privacy Policy state
+  const [showPrivacyPolicy, setShowPrivacyPolicy] = useState<boolean>(false);
+
+  // Security Check state
+  const [showSecurityCheck, setShowSecurityCheck] = useState<boolean>(false);
+
   // Initialize device capabilities
   useEffect(() => {
     const initDeviceCapabilities = async () => {
@@ -4689,12 +4698,437 @@ const registerUserInDirectory = useCallback(async () => {
               <Text style={styles.infoEmail}>discord.gg/vGQweSv7j4</Text>
             </TouchableOpacity>
           </View>
+
+          <View style={styles.infoSection}>
+            <TouchableOpacity 
+              style={styles.termsButton}
+              onPress={() => setShowTermsAndConditions(true)}
+            >
+              <Text style={styles.termsButtonText}>📋 Terms & Conditions</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.infoSection}>
+            <TouchableOpacity 
+              style={styles.privacyButton}
+              onPress={() => setShowPrivacyPolicy(true)}
+            >
+              <Text style={styles.privacyButtonText}>🔒 Privacy Policy</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.infoSection}>
+            <TouchableOpacity 
+              style={styles.securityCheckButton}
+              onPress={() => setShowSecurityCheck(true)}
+            >
+              <Text style={styles.securityCheckButtonText}>🛡️ Security Check</Text>
+            </TouchableOpacity>
+          </View>
           
           <View style={styles.infoFooter}>
             <Text style={styles.infoThankYou}>Thank you for using this app!</Text>
           </View>
         </ScrollView>
       </SafeAreaView>
+
+      {/* Terms and Conditions Modal */}
+      <Modal
+        visible={showTermsAndConditions}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowTermsAndConditions(false)}
+      >
+        <SafeAreaView style={styles.termsContainer}>
+          <View style={styles.termsHeader}>
+            <TouchableOpacity onPress={() => setShowTermsAndConditions(false)}>
+              <Text style={styles.termsCloseButton}>← Back</Text>
+            </TouchableOpacity>
+            <Text style={styles.termsTitle}>Terms & Conditions</Text>
+            <View style={{ width: 60 }} />
+          </View>
+          
+          <ScrollView style={styles.termsContent}>
+            <Text style={styles.termsSectionNumber}>1. What Cruzer Is</Text>
+            <Text style={styles.termsText}>
+              Cruzer is a feature-rich social communication platform that combines messaging, calling, location sharing, media, social discovery, and productivity tools into one application. Cruzer is designed to reduce the need for multiple separate apps while prioritizing user control, moderation, and privacy-focused features.
+            </Text>
+
+            <Text style={styles.termsSectionNumber}>2. Eligibility</Text>
+            <Text style={styles.termsText}>
+              You must be at least 13 years old to use Cruzer (or the minimum age required in your country).{'\n\n'}
+              Some features may require users to be 18+, especially those involving location sharing or VIP access.{'\n\n'}
+              By using Cruzer, you confirm that the information you provide is accurate and truthful.
+            </Text>
+
+            <Text style={styles.termsSectionNumber}>3. User Accounts & Responsibility</Text>
+            <Text style={styles.termsText}>
+              You are responsible for:{'\n\n'}
+              • Maintaining the security of your account, PINs, lock codes, and biometric access.{'\n\n'}
+              • All activity that occurs under your account.{'\n\n'}
+              • Keeping your login credentials private.{'\n\n'}
+              Cruzer is not responsible for unauthorized access caused by user negligence.
+            </Text>
+
+            <Text style={styles.termsSectionNumber}>4. Communication & Features</Text>
+            <Text style={styles.termsText}>
+              Cruzer provides:{'\n\n'}
+              • Messaging, voice calls, group chats, and SMS integration{'\n\n'}
+              • AI-powered assistance and smart features{'\n\n'}
+              • Location sharing (optional and user-controlled){'\n\n'}
+              • Media sharing and in-app browsing{'\n\n'}
+              • Social feeds, stories, and discovery tools{'\n\n'}
+              • Productivity tools like calculators, analytics, and notification controls{'\n\n'}
+              Some features may change, be limited, or be discontinued at any time to improve the Service.
+            </Text>
+
+            <Text style={styles.termsSectionNumber}>5. Location Sharing</Text>
+            <Text style={styles.termsText}>
+              • Location sharing is optional and controlled by the user.{'\n\n'}
+              • You choose when, how long, and with whom your location is shared.{'\n\n'}
+              • Cruzer is not responsible for consequences resulting from users sharing their location.{'\n\n'}
+              • Use this feature responsibly.
+            </Text>
+
+            <Text style={styles.termsSectionNumber}>6. VIP System & Restricted Access</Text>
+            <Text style={styles.termsText}>
+              • Cruzer includes a VIP system with tiered access (e.g., Developer, Staff, Authorized Users).{'\n\n'}
+              • VIP access may unlock premium or restricted features.{'\n\n'}
+              • Access may require PIN authentication or approval.{'\n\n'}
+              • Cruzer reserves the right to grant, revoke, or modify VIP access at any time.{'\n\n'}
+              • Abuse of VIP privileges may result in suspension or permanent removal.
+            </Text>
+
+            <Text style={styles.termsSectionNumber}>7. Acceptable Use</Text>
+            <Text style={styles.termsText}>
+              You agree not to:{'\n\n'}
+              • Harass, threaten, or harm other users{'\n\n'}
+              • Share illegal, abusive, or exploitative content{'\n\n'}
+              • Attempt to hack, exploit, or reverse-engineer the App{'\n\n'}
+              • Abuse location, discovery, or VIP features{'\n\n'}
+              • Impersonate others or provide false identity information{'\n\n'}
+              Violation of these rules may result in warnings, suspension, or permanent bans.
+            </Text>
+
+            <Text style={styles.termsSectionNumber}>8. Content & User Data</Text>
+            <Text style={styles.termsText}>
+              • You retain ownership of content you create and share.{'\n\n'}
+              • By using Cruzer, you grant permission for content to be processed solely to provide the Service (e.g., messaging delivery, media display).{'\n\n'}
+              • Cruzer does not claim ownership of your personal content.{'\n\n'}
+              • Some features (analytics, AI responses) may process data automatically to function properly.
+            </Text>
+
+            <Text style={styles.termsSectionNumber}>9. Privacy & Security</Text>
+            <Text style={styles.termsText}>
+              Cruzer values privacy and includes security features such as:{'\n\n'}
+              • Lock codes and biometric authentication{'\n\n'}
+              • Access controls{'\n\n'}
+              • Moderated systems for staff and VIP users{'\n\n'}
+              For full details on data handling, please refer to the Cruzer Privacy Policy.
+            </Text>
+
+            <Text style={styles.termsSectionNumber}>10. Moderation & Enforcement</Text>
+            <Text style={styles.termsText}>
+              Cruzer reserves the right to:{'\n\n'}
+              • Monitor public or shared spaces for rule enforcement{'\n\n'}
+              • Remove content that violates these Terms{'\n\n'}
+              • Restrict or terminate accounts that abuse the platform{'\n\n'}
+              Private communications are respected but may be reviewed if required by law or severe policy violations.
+            </Text>
+
+            <Text style={styles.termsSectionNumber}>11. Disclaimer</Text>
+            <Text style={styles.termsText}>
+              Cruzer is provided "as is" and "as available."{'\n\n'}
+              We do not guarantee uninterrupted service, error-free performance, or complete availability of all features at all times.
+            </Text>
+
+            <Text style={styles.termsSectionNumber}>12. Limitation of Liability</Text>
+            <Text style={styles.termsText}>
+              To the fullest extent permitted by law:{'\n\n'}
+              • Cruzer is not liable for data loss, damages, or disputes between users.{'\n\n'}
+              • Use of the App is at your own risk.
+            </Text>
+
+            <Text style={styles.termsSectionNumber}>13. Changes to These Terms</Text>
+            <Text style={styles.termsText}>
+              We may update these Terms from time to time. Continued use of Cruzer after changes means you accept the updated Terms.
+            </Text>
+
+            <View style={styles.termsFooterSpacing} />
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
+
+      {/* Privacy Policy Modal */}
+      <Modal
+        visible={showPrivacyPolicy}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowPrivacyPolicy(false)}
+      >
+        <SafeAreaView style={styles.privacyContainer}>
+          <View style={styles.privacyHeader}>
+            <TouchableOpacity onPress={() => setShowPrivacyPolicy(false)}>
+              <Text style={styles.privacyCloseButton}>← Back</Text>
+            </TouchableOpacity>
+            <Text style={styles.privacyTitle}>Privacy Policy</Text>
+            <View style={{ width: 60 }} />
+          </View>
+          
+          <ScrollView style={styles.privacyContent}>
+            <Text style={styles.privacyIntro}>
+              By using Cruzer, you agree to this Privacy Policy.
+            </Text>
+
+            <Text style={styles.privacySectionNumber}>1. Information We Collect</Text>
+            
+            <Text style={styles.privacySubsection}>A. Information You Provide</Text>
+            <Text style={styles.privacyText}>
+              We may collect:{'\n\n'}
+              • Account details (username, display name, profile info){'\n\n'}
+              • Contact information (if provided){'\n\n'}
+              • Messages, calls, and media you send or receive{'\n\n'}
+              • VIP access details (PINs, roles, permissions){'\n\n'}
+              • Support requests or feedback{'\n\n'}
+              You choose what information you share.
+            </Text>
+
+            <Text style={styles.privacySubsection}>B. Automatically Collected Information</Text>
+            <Text style={styles.privacyText}>
+              To operate and improve Cruzer, we may collect:{'\n\n'}
+              • Device information (OS, app version, device type){'\n\n'}
+              • App usage data and analytics{'\n\n'}
+              • Call logs and message delivery metadata (not message meaning){'\n\n'}
+              • Crash reports and performance diagnostics
+            </Text>
+
+            <Text style={styles.privacySubsection}>C. Location Information</Text>
+            <Text style={styles.privacyText}>
+              Cruzer offers optional real-time location sharing:{'\n\n'}
+              • Location data is only shared when you enable it{'\n\n'}
+              • You control who can see your location and for how long{'\n\n'}
+              • Location history may be stored temporarily for feature functionality{'\n\n'}
+              • Cruzer does not track your location without your permission.
+            </Text>
+
+            <Text style={styles.privacySectionNumber}>2. How We Use Your Information</Text>
+            <Text style={styles.privacyText}>
+              We use collected information to:{'\n\n'}
+              • Provide messaging, calling, and social features{'\n\n'}
+              • Enable AI-powered responses, translations, and smart tools{'\n\n'}
+              • Support location sharing and nearby discovery features{'\n\n'}
+              • Manage VIP access and restricted features{'\n\n'}
+              • Improve app performance, stability, and security{'\n\n'}
+              • Prevent abuse, fraud, or unauthorized access{'\n\n'}
+              We do not sell your personal data.
+            </Text>
+
+            <Text style={styles.privacySectionNumber}>3. AI & Automated Features</Text>
+            <Text style={styles.privacyText}>
+              Cruzer includes AI-powered features such as:{'\n\n'}
+              • Smart replies{'\n\n'}
+              • Translations{'\n\n'}
+              • Assistant-based responses{'\n\n'}
+              These features may temporarily process message content only to function properly. AI systems do not claim ownership of your data.
+            </Text>
+
+            <Text style={styles.privacySectionNumber}>4. Sharing of Information</Text>
+            <Text style={styles.privacyText}>
+              We only share information when:{'\n\n'}
+              • Required to operate core features (e.g., message delivery){'\n\n'}
+              • Necessary for security, moderation, or abuse prevention{'\n\n'}
+              • Required by law or legal process{'\n\n'}
+              • Explicitly authorized by you{'\n\n'}
+              Cruzer does not share personal data with advertisers.
+            </Text>
+
+            <Text style={styles.privacySectionNumber}>5. Messaging & Communications Privacy</Text>
+            <Text style={styles.privacyText}>
+              • You own the content you create{'\n\n'}
+              • Messages and media are processed to deliver communication{'\n\n'}
+              • Private communications are respected{'\n\n'}
+              • Cruzer may review content only if required for legal compliance, safety, or serious policy violations.
+            </Text>
+
+            <Text style={styles.privacySectionNumber}>6. Security Measures</Text>
+            <Text style={styles.privacyText}>
+              Cruzer uses security features including:{'\n\n'}
+              • Account lock codes and biometric authentication{'\n\n'}
+              • VIP permission controls{'\n\n'}
+              • Restricted access systems{'\n\n'}
+              • Monitoring for suspicious activity{'\n\n'}
+              However, no system is 100% secure. You are responsible for keeping your account credentials safe.
+            </Text>
+
+            <Text style={styles.privacySectionNumber}>7. Data Retention</Text>
+            <Text style={styles.privacyText}>
+              We retain information:{'\n\n'}
+              • As long as your account is active{'\n\n'}
+              • As needed to provide services{'\n\n'}
+              • To comply with legal obligations{'\n\n'}
+              You may request account deletion, which will remove personal data unless retention is legally required.
+            </Text>
+
+            <Text style={styles.privacySectionNumber}>8. User Controls & Choices</Text>
+            <Text style={styles.privacyText}>
+              You can:{'\n\n'}
+              • Manage privacy and visibility settings{'\n\n'}
+              • Enable or disable location sharing{'\n\n'}
+              • Control notifications and presence status{'\n\n'}
+              • Request data access or deletion (where applicable)
+            </Text>
+
+            <Text style={styles.privacySectionNumber}>9. Children's Privacy</Text>
+            <Text style={styles.privacyText}>
+              Cruzer is not intended for users under 13 years old.{'\n\n'}
+              We do not knowingly collect data from children. If detected, such data will be removed.
+            </Text>
+
+            <Text style={styles.privacySectionNumber}>10. Third-Party Integrations</Text>
+            <Text style={styles.privacyText}>
+              Cruzer may integrate with services such as:{'\n\n'}
+              • Spotify{'\n\n'}
+              • Apple Music{'\n\n'}
+              • YouTube Music{'\n\n'}
+              These services follow their own privacy policies. Cruzer is not responsible for third-party data handling.
+            </Text>
+
+            <Text style={styles.privacySectionNumber}>11. Changes to This Policy</Text>
+            <Text style={styles.privacyText}>
+              We may update this Privacy Policy periodically. Continued use of Cruzer after updates means you accept the changes.
+            </Text>
+
+            <View style={styles.privacyFooterSpacing} />
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
+
+      {/* Security Check Modal */}
+      <Modal
+        visible={showSecurityCheck}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowSecurityCheck(false)}
+      >
+        <SafeAreaView style={styles.securityCheckContainer}>
+          <View style={styles.securityCheckHeader}>
+            <TouchableOpacity onPress={() => setShowSecurityCheck(false)}>
+              <Text style={styles.securityCheckCloseButton}>← Back</Text>
+            </TouchableOpacity>
+            <Text style={styles.securityCheckTitle}>Security Check</Text>
+            <View style={{ width: 60 }} />
+          </View>
+          
+          <ScrollView style={styles.securityCheckContent}>
+            <Text style={styles.securityCheckIntro}>
+              Standard Account Security Check (All Users)
+            </Text>
+
+            <Text style={styles.securityCheckText}>
+              Every Cruzer account includes basic protection:
+            </Text>
+
+            <Text style={styles.securityCheckSectionNumber}>🔐 Identity & Access Verification</Text>
+            <Text style={styles.securityCheckText}>
+              • Account verification (email, phone, or approved method){'\n\n'}
+              • Unique account identifiers (e.g., user ID){'\n\n'}
+              • Session tracking for active logins
+            </Text>
+
+            <Text style={styles.securityCheckSectionNumber}>🔑 Login Protection</Text>
+            <Text style={styles.securityCheckText}>
+              • Lock codes and/or biometric authentication{'\n\n'}
+              • Alerts for new or unusual login attempts{'\n\n'}
+              • Manual session logout option
+            </Text>
+
+            <Text style={styles.securityCheckSectionNumber}>2. Device & Activity Protection</Text>
+            <Text style={styles.securityCheckText}>
+              Cruzer may perform automated checks to:{'\n\n'}
+              • Detect logins from new devices or locations{'\n\n'}
+              • Identify suspicious behavior (spam, abuse, automation){'\n\n'}
+              • Temporarily limit features until verification is completed{'\n\n'}
+              These checks do not access personal files or private content.
+            </Text>
+
+            <Text style={styles.securityCheckSectionNumber}>3. Location Sharing Safety Check</Text>
+            <Text style={styles.securityCheckText}>
+              Before enabling location features:{'\n\n'}
+              • Users must confirm they understand location sharing{'\n\n'}
+              • Visibility (who can see you) must be selected{'\n\n'}
+              • Location sharing can be paused or auto-expire at any time{'\n\n'}
+              • Cruzer never tracks location without user consent.
+            </Text>
+
+            <Text style={styles.securityCheckSectionNumber}>4. VIP & Restricted Access Security Check</Text>
+            <Text style={styles.securityCheckText}>
+              Users requesting VIP, Staff, or Developer access must complete additional verification.
+            </Text>
+
+            <Text style={styles.securityCheckSubsection}>🛡️ VIP / Staff Requirements</Text>
+            <Text style={styles.securityCheckText}>
+              • Manual approval by Cruzer administrators{'\n\n'}
+              • PIN-based authentication{'\n\n'}
+              • Optional biometric verification{'\n\n'}
+              • Activity logging limited to access actions (not messages){'\n\n'}
+              • VIP access may be revoked at any time if abused.
+            </Text>
+
+            <Text style={styles.securityCheckSectionNumber}>5. Trial Developer Security Check</Text>
+            <Text style={styles.securityCheckText}>
+              Trial developers must complete a dedicated security review:
+            </Text>
+
+            <Text style={styles.securityCheckSubsection}>🧪 Trial Developer Verification Includes:</Text>
+            <Text style={styles.securityCheckText}>
+              • Discord username + Discord user ID verification{'\n\n'}
+              • Confirmation of age eligibility (18+ if required){'\n\n'}
+              • Agreement to development rules and confidentiality expectations{'\n\n'}
+              • Limited permissions during trial period{'\n\n'}
+              • Continuous review during trial access{'\n\n'}
+              • Only authorized Cruzer administrators can view trial developer applications.
+            </Text>
+
+            <Text style={styles.securityCheckSectionNumber}>6. Monitoring & Enforcement</Text>
+            <Text style={styles.securityCheckText}>
+              Cruzer may monitor:{'\n\n'}
+              • Feature abuse{'\n\n'}
+              • Unauthorized access attempts{'\n\n'}
+              • Violations of platform rules{'\n\n'}
+              Private messages are not routinely reviewed and are only accessed if required for:{'\n\n'}
+              • Legal compliance{'\n\n'}
+              • Severe safety risks{'\n\n'}
+              • Critical policy violations
+            </Text>
+
+            <Text style={styles.securityCheckSectionNumber}>7. User Responsibility</Text>
+            <Text style={styles.securityCheckText}>
+              Users are responsible for:{'\n\n'}
+              • Keeping credentials secure{'\n\n'}
+              • Not sharing access or VIP permissions{'\n\n'}
+              • Reporting suspicious activity{'\n\n'}
+              Failure to follow security guidelines may result in restricted access or account suspension.
+            </Text>
+
+            <Text style={styles.securityCheckSectionNumber}>8. Transparency & Control</Text>
+            <Text style={styles.securityCheckText}>
+              Users can:{'\n\n'}
+              • View active sessions{'\n\n'}
+              • Control security settings{'\n\n'}
+              • Disable features like location sharing{'\n\n'}
+              • Request account review or deletion{'\n\n'}
+              Cruzer aims to keep security transparent, optional where possible, and proportional.
+            </Text>
+
+            <Text style={styles.securityCheckSectionNumber}>9. Changes to Security Checks</Text>
+            <Text style={styles.securityCheckText}>
+              Security procedures may be updated to address new risks. Continued use of Cruzer means acceptance of updated security measures.
+            </Text>
+
+            <View style={styles.securityCheckFooterSpacing} />
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
     </Animated.View>
   );
 
@@ -9202,6 +9636,210 @@ const createStyles = () => {
     fontSize: 18,
     color: "#007AFF",
     marginBottom: 20,
+  },
+  termsButton: {
+    backgroundColor: "#1C1C1E",
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    marginTop: 20,
+    borderWidth: 1,
+    borderColor: "#007AFF",
+  },
+  termsButtonText: {
+    fontSize: 16,
+    color: "#007AFF",
+    fontWeight: "600" as const,
+    textAlign: "center" as const,
+  },
+  privacyButton: {
+    backgroundColor: "#1C1C1E",
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    marginTop: 20,
+    borderWidth: 1,
+    borderColor: "#34C759",
+  },
+  privacyButtonText: {
+    fontSize: 16,
+    color: "#34C759",
+    fontWeight: "600" as const,
+    textAlign: "center" as const,
+  },
+  termsContainer: {
+    flex: 1,
+    backgroundColor: "#000000",
+  },
+  privacyContainer: {
+    flex: 1,
+    backgroundColor: "#000000",
+  },
+  termsHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#1C1C1E",
+  },
+  privacyHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#1C1C1E",
+  },
+  termsCloseButton: {
+    fontSize: 16,
+    color: "#007AFF",
+    fontWeight: "600" as const,
+  },
+  privacyCloseButton: {
+    fontSize: 16,
+    color: "#34C759",
+    fontWeight: "600" as const,
+  },
+  termsTitle: {
+    fontSize: 20,
+    fontWeight: "700" as const,
+    color: "#FFFFFF",
+  },
+  privacyTitle: {
+    fontSize: 20,
+    fontWeight: "700" as const,
+    color: "#FFFFFF",
+  },
+  termsContent: {
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+  },
+  privacyContent: {
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+  },
+  termsSectionNumber: {
+    fontSize: 16,
+    fontWeight: "700" as const,
+    color: "#007AFF",
+    marginTop: 24,
+    marginBottom: 12,
+  },
+  privacySectionNumber: {
+    fontSize: 16,
+    fontWeight: "700" as const,
+    color: "#34C759",
+    marginTop: 24,
+    marginBottom: 12,
+  },
+  privacySubsection: {
+    fontSize: 14,
+    fontWeight: "600" as const,
+    color: "#A2D5FF",
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  privacyIntro: {
+    fontSize: 14,
+    color: "#E0E0E0",
+    lineHeight: 22,
+    marginBottom: 24,
+    fontStyle: "italic",
+  },
+  termsText: {
+    fontSize: 14,
+    color: "#E0E0E0",
+    lineHeight: 22,
+    marginBottom: 16,
+  },
+  privacyText: {
+    fontSize: 14,
+    color: "#E0E0E0",
+    lineHeight: 22,
+    marginBottom: 16,
+  },
+  termsFooterSpacing: {
+    height: 40,
+  },
+  privacyFooterSpacing: {
+    height: 40,
+  },
+  securityCheckButton: {
+    backgroundColor: "#1C1C1E",
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    marginTop: 20,
+    borderWidth: 1,
+    borderColor: "#FF9500",
+  },
+  securityCheckButtonText: {
+    fontSize: 16,
+    color: "#FF9500",
+    fontWeight: "600" as const,
+    textAlign: "center" as const,
+  },
+  securityCheckContainer: {
+    flex: 1,
+    backgroundColor: "#000000",
+  },
+  securityCheckHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#1C1C1E",
+  },
+  securityCheckCloseButton: {
+    fontSize: 16,
+    color: "#FF9500",
+    fontWeight: "600" as const,
+  },
+  securityCheckTitle: {
+    fontSize: 20,
+    fontWeight: "700" as const,
+    color: "#FFFFFF",
+  },
+  securityCheckContent: {
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+  },
+  securityCheckIntro: {
+    fontSize: 16,
+    fontWeight: "700" as const,
+    color: "#FF9500",
+    marginBottom: 16,
+  },
+  securityCheckSectionNumber: {
+    fontSize: 15,
+    fontWeight: "700" as const,
+    color: "#FFB84D",
+    marginTop: 20,
+    marginBottom: 12,
+  },
+  securityCheckSubsection: {
+    fontSize: 14,
+    fontWeight: "600" as const,
+    color: "#FFD699",
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  securityCheckText: {
+    fontSize: 14,
+    color: "#E0E0E0",
+    lineHeight: 22,
+    marginBottom: 16,
+  },
+  securityCheckFooterSpacing: {
+    height: 40,
   },
   infoFooter: {
     marginTop: 60,

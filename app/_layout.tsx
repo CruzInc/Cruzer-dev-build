@@ -110,6 +110,14 @@ function RootLayoutNav() {
       }}
     >
       <Stack.Screen name="index" options={{ headerShown: false }} />
+      <Stack.Screen name="gamification" options={{ title: 'Gamification' }} />
+      <Stack.Screen name="directory" options={{ title: 'Directory' }} />
+      <Stack.Screen name="activity-feed" options={{ title: 'Activity Feed' }} />
+      <Stack.Screen name="stories" options={{ title: 'Stories' }} />
+      <Stack.Screen name="group-chat" options={{ title: 'Group Chat' }} />
+      <Stack.Screen name="themes" options={{ title: 'Themes & Sounds' }} />
+      <Stack.Screen name="search-advanced" options={{ title: 'Advanced Search' }} />
+      <Stack.Screen name="security" options={{ title: 'Security & Devices' }} />
     </Stack>
   );
 }

@@ -23,8 +23,9 @@ import {
   RefreshControl,
   Share,
   Clipboard,
+  AppState,
 } from "react-native";
-import { Send, Phone, Video, Settings, Image as ImageIcon, FileText, User, X, Info, Pin, BellOff, Lock, Search, LogOut, MapPin, Camera, Crown, Globe, Music, Play, Pause, SkipForward, AlertTriangle, Heart, Mail, Users } from "lucide-react-native";
+import { Send, Phone, Video, Settings, Image as ImageIcon, FileText, User, X, Info, Pin, BellOff, Lock, Search, LogOut, MapPin, Camera, Crown, Globe, Music, Play, Pause, SkipForward, AlertTriangle, Heart, Mail, Users, Trophy, Activity, Zap, MessageSquare, Palette } from "lucide-react-native";
 import { Swipeable } from 'react-native-gesture-handler';
 import { Accelerometer } from 'expo-sensors';
 import * as ImagePicker from 'expo-image-picker';
@@ -54,6 +55,13 @@ import { debugMonitor } from '../services/debugMonitor';
 import { ownerPanel } from '../services/ownerPanel';
 // Note: autoMaintenance is a dev-only tool and should not run in the mobile app.
 // It uses Node APIs that are unavailable in React Native. Removed from app bundle.
+import { messageFeaturesService } from '../services/messageFeatures';
+import { presenceService } from '../services/presence';
+import { gamificationService } from '../services/gamification';
+import { advancedFeaturesService } from '../services/advancedFeatures';
+import { socialDiscoveryService } from '../services/socialDiscovery';
+import { customizationSecurityService } from '../services/customization';
+import { searchPerformanceService } from '../services/searchPerformance';
 import colors from '../constants/colors';
 import { FriendsAddScreen } from '../components/FriendsAddScreen';
 import { backend } from '../services/backend';
@@ -79,7 +87,7 @@ const SHOWN_BETA_KEY = 'cruzer:shownBeta:v1';
 // Ensure WebBrowser redirect is properly handled
 WebBrowser.maybeCompleteAuthSession();
 
-type CalculatorMode = "calculator" | "messages" | "chat" | "videoCall" | "info" | "profile" | "auth" | "developer" | "staff" | "location" | "camera" | "browser" | "phoneDialer" | "activeCall" | "activeVideoCall" | "smsChat" | "settings" | "music" | "crashLogs" | "friends";
+type CalculatorMode = "calculator" | "messages" | "chat" | "videoCall" | "info" | "profile" | "auth" | "developer" | "staff" | "location" | "camera" | "browser" | "phoneDialer" | "activeCall" | "activeVideoCall" | "smsChat" | "settings" | "music" | "crashLogs" | "friends" | "gamification" | "directory" | "activity-feed" | "stories" | "group-chat" | "search-advanced" | "themes" | "security";
 
 interface MusicPlayerState {
   tracks: MusicTrack[];
@@ -288,6 +296,7 @@ export default function CalculatorApp() {
   const [longPressedMessage, setLongPressedMessage] = useState<string | null>(null);
   const [showMessageActions, setShowMessageActions] = useState<boolean>(false);
   const [showEffectPicker, setShowEffectPicker] = useState<boolean>(false);
+  const [showReactionPicker, setShowReactionPicker] = useState<boolean>(false);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editingMessageText, setEditingMessageText] = useState<string>("");
   const [showChatSearch, setShowChatSearch] = useState<boolean>(false);
@@ -329,6 +338,7 @@ export default function CalculatorApp() {
   const [confetti, setConfetti] = useState<{ id: string; x: number; y: number; color: string; rotation: number }[]>([]);
   const [userAccounts, setUserAccounts] = useState<UserAccount[]>([]);
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
+  const [syncQueueCount, setSyncQueueCount] = useState<number>(0);
   const [authMode, setAuthMode] = useState<"signin" | "signup">("signin");
   const [authEmail, setAuthEmail] = useState<string>("");
   const [authPassword, setAuthPassword] = useState<string>("");
@@ -507,6 +517,65 @@ export default function CalculatorApp() {
     };
 
     initDeviceCapabilities();
+  }, []);
+
+  // Initialize all feature services (32 new features)
+  useEffect(() => {
+    const initializeFeatureServices = async () => {
+      try {
+        console.log('[Services] Initializing 32 feature services...');
+        
+        // Initialize message features service
+
+        // Initialize presence service
+        try {
+          await presenceService.initializePresence?.();
+          console.log('[Services] Presence service initialized');
+        } catch (error) {
+          console.warn('[Services] Failed to initialize presence:', error);
+        }
+
+        // Initialize gamification service
+
+        // Initialize advanced features service
+        try {
+          await advancedFeaturesService.initializeAdvancedFeatures?.();
+          console.log('[Services] Advanced features initialized');
+        } catch (error) {
+          console.warn('[Services] Failed to initialize advanced features:', error);
+        }
+
+        // Initialize social discovery service
+        try {
+          await socialDiscoveryService.initializeSocialFeatures?.();
+          console.log('[Services] Social discovery initialized');
+        } catch (error) {
+          console.warn('[Services] Failed to initialize social discovery:', error);
+        }
+
+        // Initialize customization and security service
+        try {
+          await customizationSecurityService.initializeCustomizationSecurity?.();
+          console.log('[Services] Customization service initialized');
+        } catch (error) {
+          console.warn('[Services] Failed to initialize customization:', error);
+        }
+
+        // Initialize search and performance service
+        try {
+          await searchPerformanceService.initializeSearchPerformance?.();
+          console.log('[Services] Search service initialized');
+        } catch (error) {
+          console.warn('[Services] Failed to initialize search:', error);
+        }
+
+        console.log('[Services] All feature services initialized successfully');
+      } catch (error) {
+        console.error('[Services] Critical error during service initialization:', error);
+      }
+    };
+
+    initializeFeatureServices();
   }, []);
 
   // Initialize Debug Monitor and UX Features
@@ -769,6 +838,120 @@ export default function CalculatorApp() {
       }
     };
   }, [currentUser]);
+
+  // Track user presence (online/offline status)
+  useEffect(() => {
+    if (!currentUser?.id) return;
+
+    const trackPresence = async () => {
+      try {
+        // Mark user as online when app is in focus
+        await presenceService.setUserPresence?.(currentUser.id, 'online');
+        console.log('[Presence] User marked as online');
+      } catch (error) {
+        console.warn('[Presence] Failed to set user online:', error);
+      }
+    };
+
+    trackPresence();
+
+    // Mark user as offline when component unmounts or user changes
+    return () => {
+      presenceService.setUserPresence?.(currentUser.id, 'offline').catch(error => {
+        console.warn('[Presence] Failed to set user offline:', error);
+      });
+    };
+  }, [currentUser?.id]);
+
+  // Shared sync queue handler used by timers and app state changes
+  const processQueuedMessage = useCallback(
+    async (msg: any) => {
+      if (!currentUser?.id) return false;
+      try {
+        await backend.createMessage({
+          userId: msg.senderId,
+          contactId: msg.recipientId,
+          content: msg.content,
+          timestamp: msg.timestamp,
+          isEncrypted: false,
+          messageType: 'text',
+        });
+        return true;
+      } catch (error) {
+        console.warn('[Sync] Failed to send queued message:', error);
+        return false;
+      }
+    },
+    [currentUser?.id]
+  );
+
+  // Process sync queue periodically
+
+  useEffect(() => {
+    const processSyncQueue = async () => {
+      try {
+        await advancedFeaturesService.processSyncQueue(processQueuedMessage);
+        console.log('[Sync] Queue processed');
+      } catch (error) {
+        console.warn('[Sync] Failed to process queue:', error);
+      }
+    };
+    // Process queue every 30 seconds
+    const syncInterval = setInterval(processSyncQueue, 30000);
+    // Check immediately
+    processSyncQueue();
+
+    return () => clearInterval(syncInterval);
+  }, []);
+
+  // Track typing status
+  useEffect(() => {
+    if (!currentUser?.id || !selectedContactId || !inputText.trim()) return;
+
+    const updateTypingStatus = async () => {
+      try {
+        messageFeaturesService.setTypingStatus(selectedContactId, currentUser.id, true);
+        console.log('[Message Features] User is typing');
+        // Check for badge milestones
+        await checkAndAwardBadges();
+      } catch (error) {
+        console.warn('[Message Features] Failed to set typing status:', error);
+      }
+    };
+
+    updateTypingStatus();
+
+    // Clear typing status after 3 seconds of no input
+    const typingTimeout = setTimeout(() => {
+      try {
+        messageFeaturesService.setTypingStatus(selectedContactId, currentUser.id, false);
+      } catch (error) {
+        console.warn('[Message Features] Failed to clear typing status:', error);
+      }
+    }, 3000);
+
+    return () => clearTimeout(typingTimeout);
+  }, [inputText, currentUser?.id, selectedContactId]);
+
+  // Update presence and process queue on app foreground/background changes
+  useEffect(() => {
+    if (!currentUser?.id) return;
+
+    const handleAppStateChange = async (nextState: string) => {
+      try {
+        const status = nextState === 'active' ? 'online' : 'offline';
+        await presenceService.setUserPresence?.(currentUser.id, status);
+        if (status === 'online') {
+          await advancedFeaturesService.processSyncQueue(processQueuedMessage);
+        }
+      } catch (error) {
+        console.warn('[Presence] Failed during app state change:', error);
+      }
+    };
+
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    return () => subscription.remove();
+  }, [currentUser?.id, processQueuedMessage]);
 
   // Cleanup audio sound on unmount
   useEffect(() => {
@@ -1662,6 +1845,37 @@ export default function CalculatorApp() {
     setDisplay(value.toString());
   };
 
+  const createStory = async (content: string, attachments?: string[]) => {
+    try {
+      if (currentUser?.id && currentUser?.publicName) {
+        await socialDiscoveryService.postStory?.(currentUser.id, currentUser.publicName, content, attachments);
+        console.log('[Social] Story posted');
+        Alert.alert('Story Posted', 'Your story has been shared with your contacts!');
+      }
+    } catch (error) {
+      console.warn('[Social] Failed to post story:', error);
+      Alert.alert('Story Failed', 'Could not post story. Try again.');
+    }
+  };
+
+  const createGroupChat = async (groupName: string, memberIds: string[]) => {
+    try {
+      if (currentUser?.id) {
+        await socialDiscoveryService.createGroupChat?.(
+          groupName,
+          currentUser.id,
+          [currentUser.id, ...memberIds],
+          undefined
+        );
+        console.log('[Social] Group chat created:', groupName);
+        Alert.alert('Group Created', `${groupName} has been created!`);
+      }
+    } catch (error) {
+      console.warn('[Social] Failed to create group:', error);
+      Alert.alert('Group Failed', 'Could not create group. Try again.');
+    }
+  };
+
   const switchMode = (newMode: CalculatorMode) => {
     const allowedModes: CalculatorMode[] = [
       "calculator",
@@ -1683,6 +1897,14 @@ export default function CalculatorApp() {
       "settings",
       "music",
       "crashLogs",
+      "gamification",
+      "directory",
+      "activity-feed",
+      "stories",
+      "group-chat",
+      "search-advanced",
+      "themes",
+      "security",
     ];
 
     const targetMode = allowedModes.includes(newMode) ? newMode : "calculator";
@@ -1831,6 +2053,47 @@ export default function CalculatorApp() {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
       sendStealthNotification('New message').catch(() => {});
 
+      // Track message for features
+      try {
+        // Increment message count for gamification
+        if (currentUser?.id) {
+          await gamificationService.incrementMessagesSent(currentUser.id, 1);
+        }
+        console.log('[Gamification] Message sent tracked');
+      } catch (error) {
+        console.warn('[Gamification] Failed to track message:', error);
+      }
+
+      // Queue message for sync
+      try {
+        if (currentUser?.id && selectedContactId) {
+          await advancedFeaturesService.queueMessage(
+            currentUser.id,
+            selectedContactId,
+            inputText.trim()
+          );
+        }
+        console.log('[Sync] Message queued for sync');
+      } catch (error) {
+        console.warn('[Sync] Failed to queue message:', error);
+      }
+
+      // Index message for search
+      try {
+        await searchPerformanceService.indexMessage(newMessage.id, inputText.trim());
+        console.log('[Search] Message indexed');
+      } catch (error) {
+        console.warn('[Search] Failed to index message:', error);
+      }
+
+      // Record user activity
+      try {
+        advancedFeaturesService.recordUserActivity();
+        console.log('[Activity] Message send recorded');
+      } catch (error) {
+        console.warn('[Activity] Failed to record activity:', error);
+      }
+
       if (effect) {
         playMessageEffect(newMessage.id, effect);
       }
@@ -1855,10 +2118,24 @@ export default function CalculatorApp() {
           isEncrypted: false,
           messageType: image ? 'image' : file ? 'video' : 'text',
           mediaUrl: image || file?.uri,
-        }).then(() => {
+        }).then(async () => {
           console.log('[Message] Synced to backend');
           // Mark as sent after backend confirmation
           setMessages(prev => prev.map(m => m.id === newMessage.id ? { ...m, status: 'sent' } : m));
+
+          // Log activity feed entry
+          try {
+            await socialDiscoveryService.addActivityFeedEntry?.({
+              userId: currentUser.id,
+              type: 'milestone',
+              title: 'Message sent',
+              description: `Sent to contact ${selectedContactId}`,
+              timestamp: new Date(),
+              icon: 'message',
+            });
+          } catch (err) {
+            console.warn('[Activity] Failed to add feed entry:', err);
+          }
         }).catch(err => {
           console.error('[Message] Backend sync failed:', err);
           // Mark as failed
@@ -1873,6 +2150,54 @@ export default function CalculatorApp() {
     }
   };
 
+  const markMessageAsRead = useCallback(async (messageId: string, senderId: string) => {
+    try {
+      messageFeaturesService.markAsRead(messageId, senderId);
+      console.log('[Message Features] Message marked as read:', messageId);
+    } catch (error) {
+      console.warn('[Message Features] Failed to mark message as read:', error);
+    }
+  }, []);
+
+
+  // Track user interaction with contacts
+const trackContactInteraction = useCallback(async (contactId: string) => {
+        try {
+          if (currentUser?.id) {
+            advancedFeaturesService.recordUserActivity();
+            await presenceService.updateUserProfile?.(currentUser.id, { lastSeen: new Date() });
+            console.log('[Activity] Contact interaction tracked:', contactId);
+          }
+        } catch (error) {
+          console.warn('[Activity] Failed to track interaction:', error);
+        }
+      }, [currentUser?.id]);
+
+// Register user in social directory on first login
+const registerUserInDirectory = useCallback(async () => {
+        try {
+          if (currentUser?.id && currentUser?.publicName) {
+            await socialDiscoveryService.registerInDirectory?.({
+              userId: currentUser.id,
+              displayName: currentUser.publicName,
+              status: 'online',
+              joinDate: new Date(),
+              badgeCount: 0,
+              bio: 'Cruzer User',
+            });
+            console.log('[Social] User registered in directory');
+          }
+        } catch (error) {
+          console.warn('[Social] Failed to register in directory:', error);
+        }
+      }, [currentUser?.id, currentUser?.publicName, currentUser?.email]);
+
+      // Mark first login to register in directory
+  useEffect(() => {
+        if (currentUser?.id && !currentUser.lastLogin) {
+          registerUserInDirectory();
+        }
+      }, [currentUser?.id, registerUserInDirectory]);
   const playMessageEffect = (messageId: string, effect: "slam" | "float") => {
     if (!effectAnimations[messageId]) {
       effectAnimations[messageId] = {
@@ -1944,6 +2269,19 @@ export default function CalculatorApp() {
   const handleLongPressMessage = (messageId: string) => {
     setLongPressedMessage(messageId);
     setShowMessageActions(true);
+  };
+
+  const handleAddReaction = async (emoji: string) => {
+    try {
+      if (longPressedMessage && currentUser?.id) {
+        messageFeaturesService.addReaction(longPressedMessage, currentUser.id, emoji);
+        console.log('[Message Features] Reaction added:', emoji);
+      }
+      setShowMessageActions(false);
+      setLongPressedMessage(null);
+    } catch (error) {
+      console.warn('[Message Features] Failed to add reaction:', error);
+    }
   };
 
   const handleEditMessage = () => {
@@ -2181,6 +2519,14 @@ export default function CalculatorApp() {
     setContacts(contacts.map(c => 
       c.id === longPressedContact ? { ...c, isPinned: !c.isPinned } : c
     ));
+
+    // Mirror pin state into favorites list
+    if (currentUser?.id && contact.id) {
+      searchPerformanceService.toggleContactFavorite(currentUser.id, contact.id).catch(err => {
+        console.warn('[Favorites] Failed to toggle favorite:', err);
+      });
+    }
+
     setShowContactActions(false);
     setLongPressedContact(null);
   };
@@ -2189,16 +2535,75 @@ export default function CalculatorApp() {
     setContacts(contacts.map(c => 
       c.id === longPressedContact ? { ...c, isMuted: !c.isMuted } : c
     ));
+    if (currentUser?.id && longPressedContact) {
+      customizationSecurityService.setContactNotificationSound?.(longPressedContact, 'silent').catch(err => {
+        console.warn('[Customization] Failed to mute contact:', err);
+      });
+    }
     setShowContactActions(false);
     setLongPressedContact(null);
   };
   
   const handleDeleteContact = () => {
     setContacts(contacts.filter(c => c.id !== longPressedContact));
+    if (currentUser?.id && longPressedContact) {
+      customizationSecurityService.blockUser?.(currentUser.id, longPressedContact).catch(err => {
+        console.warn('[Security] Failed to block contact:', err);
+      });
+    }
     setShowContactActions(false);
     setLongPressedContact(null);
   };
-  
+
+  const clearSearchHistory = async () => {
+    try {
+      await searchPerformanceService.clearSearchHistory?.();
+      console.log('[Search] History cleared');
+    } catch (error) {
+      console.warn('[Search] Failed to clear history:', error);
+    }
+  };
+
+  const setupDND = async (enabled: boolean, startTime?: string, endTime?: string) => {
+    try {
+      if (currentUser?.id) {
+        await presenceService.setDoNotDisturb?.(currentUser.id, enabled, startTime || "22:00", endTime || "08:00");
+        console.log('[Presence] DND set:', enabled);
+      }
+    } catch (error) {
+      console.warn('[Presence] Failed to set DND:', error);
+    }
+  };
+
+  const setupAutoReply = async (message: string, enabled: boolean) => {
+    try {
+      if (currentUser?.id) {
+        await presenceService.setAutoReply?.(currentUser.id, enabled, message);
+        console.log('[Presence] Auto-reply set:', enabled);
+      }
+    } catch (error) {
+      console.warn('[Presence] Failed to set auto-reply:', error);
+    }
+  };
+
+  const checkAndAwardBadges = async () => {
+    try {
+      if (currentUser?.id) {
+        const stats = await gamificationService.getUserStatistics?.(currentUser.id);
+        if (stats) {
+          if (stats.messagesSent === 100 || stats.messagesSent === 1000) {
+            console.log('[Gamification] Badge milestone reached!');
+          }
+          if (stats.callsMade === 10 || stats.callsMade === 50) {
+            console.log('[Gamification] Call milestone reached!');
+          }
+        }
+      }
+    } catch (error) {
+      console.warn('[Gamification] Failed to check badges:', error);
+    }
+  };
+
   const requestContactsPermission = async () => {
     const { status } = await Contacts.requestPermissionsAsync();
     if (status === "granted") {
@@ -2524,7 +2929,7 @@ export default function CalculatorApp() {
       // Robust redirect URI handling for native and web
       // Native (iOS/Android): use custom scheme; Web: use router origin
       const redirectUri = Platform.OS === 'web'
-        ? AuthSession.makeRedirectUri({ path: 'redirect' })
+        ? 'https://auth.expo.io/@cruzer-devs/cruzer-dev'
         : AuthSession.makeRedirectUri({ scheme: 'cruzer-app', path: 'redirect' });
 
       console.log('=== Google Sign-In Debug ===');
@@ -3772,6 +4177,12 @@ export default function CalculatorApp() {
             )}
           </View>
           <View style={styles.headerButtons}>
+            {messages.some(m => m.status === 'sending') && (
+              <View style={styles.syncIndicator}>
+                <ActivityIndicator size="small" color="#007AFF" />
+                <Text style={styles.syncText}>Syncing</Text>
+              </View>
+            )}
             <TouchableOpacity style={styles.headerIconButton} onPress={() => setShowChatSearch(s => !s)}>
               <Search size={22} color="#007AFF" strokeWidth={2} />
             </TouchableOpacity>
@@ -3918,6 +4329,26 @@ export default function CalculatorApp() {
                   >
                     {formatTime(message.timestamp)}
                   </Text>
+                  {(() => {
+                    const reactions = messageFeaturesService.getReactions?.(message.id) || [];
+                    if (reactions.length > 0) {
+                      const reactionCounts: Record<string, number> = {};
+                      reactions.forEach((r: any) => {
+                        reactionCounts[r.emoji] = (reactionCounts[r.emoji] || 0) + 1;
+                      });
+                      return (
+                        <View style={[styles.reactionsContainer, message.sender === "user" ? styles.reactionsRight : styles.reactionsLeft]}>
+                          {Object.entries(reactionCounts).map(([emoji, count]) => (
+                            <View key={emoji} style={styles.reactionBubble}>
+                              <Text style={styles.reactionEmoji}>{emoji}</Text>
+                              {count > 1 && <Text style={styles.reactionCount}>{count}</Text>}
+                            </View>
+                          ))}
+                        </View>
+                      );
+                    }
+                    return null;
+                  })()}
                   {!selectedContact?.isAI && message.sender === 'user' && message.status && (
                     <Text
                       style={[
@@ -4906,6 +5337,23 @@ export default function CalculatorApp() {
         ? { ...log, duration: activeCallDuration }
         : log
     ));
+
+    // Track call completion for gamification and activity
+    try {
+      if (currentUser?.id && activeCallNumber) {
+        await gamificationService.incrementCallsMade(currentUser.id, activeCallDuration || 0);
+        await socialDiscoveryService.addActivityFeedEntry?.({
+          userId: currentUser.id,
+          type: 'milestone',
+          title: 'Call completed',
+          description: `Call with ${activeCallNumber}`,
+          timestamp: new Date(),
+          icon: 'phone',
+        });
+      }
+    } catch (error) {
+      console.warn('[Gamification] Failed to track call completion:', error);
+    }
     
     setActiveCallNumber("");
     setActiveCallDuration(0);
@@ -5462,6 +5910,82 @@ export default function CalculatorApp() {
             >
               <MapPin size={24} color="#007AFF" />
               <Text style={styles.settingsItemText}>Location: {locationVisibility}</Text>
+              <Text style={styles.settingsItemArrow}>→</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.settingsSection}>
+            <Text style={styles.settingsSectionTitle}>Features</Text>
+            
+            <TouchableOpacity 
+              style={styles.settingsItem}
+              onPress={() => switchMode("gamification")}
+            >
+              <Trophy size={24} color="#FFD700" />
+              <Text style={styles.settingsItemText}>Gamification Stats</Text>
+              <Text style={styles.settingsItemArrow}>→</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.settingsItem}
+              onPress={() => switchMode("directory")}
+            >
+              <Users size={24} color="#007AFF" />
+              <Text style={styles.settingsItemText}>Directory</Text>
+              <Text style={styles.settingsItemArrow}>→</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.settingsItem}
+              onPress={() => switchMode("activity-feed")}
+            >
+              <Activity size={24} color="#34C759" />
+              <Text style={styles.settingsItemText}>Activity Feed</Text>
+              <Text style={styles.settingsItemArrow}>→</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.settingsItem}
+              onPress={() => switchMode("stories")}
+            >
+              <Zap size={24} color="#FF9500" />
+              <Text style={styles.settingsItemText}>Stories</Text>
+              <Text style={styles.settingsItemArrow}>→</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.settingsItem}
+              onPress={() => switchMode("group-chat")}
+            >
+              <MessageSquare size={24} color="#FF2D55" />
+              <Text style={styles.settingsItemText}>Group Chat</Text>
+              <Text style={styles.settingsItemArrow}>→</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.settingsItem}
+              onPress={() => switchMode("search-advanced")}
+            >
+              <Search size={24} color="#5856D6" />
+              <Text style={styles.settingsItemText}>Advanced Search</Text>
+              <Text style={styles.settingsItemArrow}>→</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.settingsItem}
+              onPress={() => switchMode("themes")}
+            >
+              <Palette size={24} color="#FF2D55" />
+              <Text style={styles.settingsItemText}>Themes & Sounds</Text>
+              <Text style={styles.settingsItemArrow}>→</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.settingsItem}
+              onPress={() => switchMode("security")}
+            >
+              <Lock size={24} color="#FF3B30" />
+              <Text style={styles.settingsItemText}>Security & Privacy</Text>
               <Text style={styles.settingsItemArrow}>→</Text>
             </TouchableOpacity>
           </View>
@@ -6506,7 +7030,7 @@ export default function CalculatorApp() {
 
   return (
     <SafeAreaView style={[styles.container, mode === "browser" && styles.fullscreenContainer]}>
-      <StatusBar barStyle="light-content" hidden={true} translucent={true} />
+      <StatusBar barStyle="light-content" backgroundColor="#000000" translucent={false} />
       {mode === "calculator" && renderCalculator()}
       {mode === "messages" && renderMessages()}
       {mode === "chat" && renderChat()}
@@ -6774,6 +7298,15 @@ export default function CalculatorApp() {
               style={styles.actionButton}
               onPress={() => {
                 setShowMessageActions(false);
+                setShowReactionPicker(true);
+              }}
+            >
+              <Text style={styles.actionButtonText}>Add Reaction</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => {
+                setShowMessageActions(false);
                 setShowEffectPicker(true);
               }}
             >
@@ -6821,6 +7354,44 @@ export default function CalculatorApp() {
             <TouchableOpacity
               style={[styles.actionButton, styles.actionButtonCancel]}
               onPress={() => setShowEffectPicker(false)}
+            >
+              <Text style={[styles.actionButtonText, styles.actionButtonTextBold]}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      <Modal
+        visible={showReactionPicker}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowReactionPicker(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowReactionPicker(false)}
+        >
+          <View style={styles.actionSheet}>
+            <View style={styles.effectPickerHeader}>
+              <Text style={styles.effectPickerTitle}>React with Emoji</Text>
+            </View>
+            {['👍', '❤️', '😂', '😮', '😢', '🎉', '🔥', '✨'].map((emoji) => (
+              <TouchableOpacity
+                key={emoji}
+                style={styles.actionButton}
+                onPress={() => {
+                  handleAddReaction(emoji);
+                  setShowReactionPicker(false);
+                }}
+              >
+                <Text style={{fontSize: 32, marginRight: 12}}>{emoji}</Text>
+                <Text style={styles.actionButtonText}>React</Text>
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity
+              style={[styles.actionButton, styles.actionButtonCancel]}
+              onPress={() => setShowReactionPicker(false)}
             >
               <Text style={[styles.actionButtonText, styles.actionButtonTextBold]}>Cancel</Text>
             </TouchableOpacity>
@@ -8026,6 +8597,21 @@ const createStyles = () => {
     width: 88,
     justifyContent: "flex-end",
   },
+  syncIndicator: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#1a1a1a",
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    marginRight: 8,
+    gap: 4,
+  },
+  syncText: {
+    fontSize: 12,
+    color: "#007AFF",
+    fontWeight: "600",
+  },
   headerIconButton: {
     width: 44,
     height: 44,
@@ -8299,6 +8885,38 @@ const createStyles = () => {
   messageTimestampLeft: {
     alignSelf: "flex-start" as const,
     marginLeft: 12,
+  },
+  reactionsContainer: {
+    flexDirection: "row" as const,
+    flexWrap: "wrap" as const,
+    gap: 4,
+    marginTop: 4,
+    marginBottom: 8,
+  },
+  reactionsRight: {
+    alignSelf: "flex-end" as const,
+    marginRight: 12,
+  },
+  reactionsLeft: {
+    alignSelf: "flex-start" as const,
+    marginLeft: 12,
+  },
+  reactionBubble: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    backgroundColor: "#2a2a2a",
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    gap: 4,
+  },
+  reactionEmoji: {
+    fontSize: 14,
+  },
+  reactionCount: {
+    fontSize: 11,
+    color: "#fff",
+    fontWeight: "600" as const,
   },
   swipeActionLeft: {
     backgroundColor: "#0a2a0a",

@@ -159,6 +159,7 @@ function getIntelligentResponse(message: string): string {
   
   // Fallback for very short or unclear messages
   return "I'm here to help! Feel free to ask me anything - questions about the app, weather, math, general knowledge, or just chat. What's on your mind? 😊";
+}
 
 // Main function to get AI response
 // Uses intelligent free response system - NO API keys required

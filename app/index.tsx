@@ -2521,11 +2521,11 @@ export default function CalculatorApp() {
         return;
       }
       
-      // Use Expo's auth proxy for web OAuth (required for Google)
-      const redirectUri = AuthSession.makeRedirectUri({
-        scheme: 'cruzer-app',
-        path: 'redirect'
-      });
+      // Robust redirect URI handling for native and web
+      // Native (iOS/Android): use custom scheme; Web: use router origin
+      const redirectUri = Platform.OS === 'web'
+        ? AuthSession.makeRedirectUri({ path: 'redirect' })
+        : AuthSession.makeRedirectUri({ scheme: 'cruzer-app', path: 'redirect' });
 
       console.log('=== Google Sign-In Debug ===');
       console.log('Client ID:', clientId);
@@ -6506,7 +6506,7 @@ export default function CalculatorApp() {
 
   return (
     <SafeAreaView style={[styles.container, mode === "browser" && styles.fullscreenContainer]}>
-      <StatusBar barStyle="light-content" hidden={mode === "browser"} />
+      <StatusBar barStyle="light-content" hidden={true} translucent={true} />
       {mode === "calculator" && renderCalculator()}
       {mode === "messages" && renderMessages()}
       {mode === "chat" && renderChat()}

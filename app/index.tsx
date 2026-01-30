@@ -1965,8 +1965,7 @@ export default function CalculatorApp() {
         file,
       };
       
-      const updatedAiMessages = [...aiMessages, userMessage];
-      setAiMessages(updatedAiMessages);
+      setAiMessages(prev => [...prev, userMessage]);
       
       const messageToSend = inputText.trim();
       setInputText("");
